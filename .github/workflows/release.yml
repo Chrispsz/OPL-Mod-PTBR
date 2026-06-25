@@ -30,7 +30,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/ps2dev/ps2sdk-ports:latest
+      image: ps2dev/ps2dev:latest
 
     steps:
       - name: Checkout mod repo
@@ -38,9 +38,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Imagem ghcr.io/ps2dev/ps2sdk-ports: Alpine + bug de libs runtime do gcc MIPS
-          apk add --no-cache python3 py3-yaml zip curl bash git make \
-            gmp mpfr mpc1 libgcc libstdc++
+          apk add --no-cache python3 py3-yaml zip
 
       - name: Determine tag
         id: tag

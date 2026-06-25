@@ -22,7 +22,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/ps2dev/ps2sdk-ports:latest
+      image: ps2dev/ps2dev:latest
 
     steps:
       - name: Checkout mod repo
@@ -30,23 +30,18 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Imagem ghcr.io/ps2dev/ps2sdk-ports já tem ps2sdk + ports (gsKit etc.)
-          # mas é Alpine e tem bug: faltam libs runtime do gcc MIPS
-          apk add --no-cache python3 py3-yaml zip curl bash git make \
-            gmp mpfr mpc1 libgcc libstdc++
+          # Imagem ps2dev/ps2dev:latest já tem TUDO:
+          # - ps2sdk + gsKit + ps2sdk-ports + ps2eth + ps2client + ps2-packer
+          # Só precisamos de python3 (para lang_compiler.py) e zip (para artifact)
+          apk add --no-cache python3 py3-yaml zip
 
-      - name: Verify gsKit is available
+      - name: Verify environment
         run: |
-          echo "gsKit include dir:"
-          ls /usr/local/ps2dev/gskit/include/ 2>/dev/null | head -5 || echo "  (não encontrado em gskit/include)"
-          ls /usr/local/ps2dev/ps2sdk/ports/include/ 2>/dev/null | grep -i gs || echo "  (não encontrado em ports/include)"
-          echo ""
-          echo "PS2SDK=$PS2SDK"
-          echo "GSKIT=$GSKIT"
+          echo "ps2-packer: $(which ps2-packer)"
+          echo "ee-gcc:     $(which ee-gcc 2>/dev/null || which mips64r59002el-elf-gcc 2>/dev/null || echo 'NÃO ENCONTRADO')"
+          echo "gsKit.h:    $(find /usr/local/ps2dev -name gsKit.h 2>/dev/null | head -1)"
           echo "PS2DEV=$PS2DEV"
-          echo ""
-          # Verificar se gsKit.h existe em algum lugar
-          find /usr/local/ps2dev -name "gsKit.h" 2>/dev/null | head -5
+          echo "GSKIT=$GSKIT"
 
       - name: Clone upstream OPL
         run: |
