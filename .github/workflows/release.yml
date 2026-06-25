@@ -2,13 +2,16 @@
 # release.yml — Cria um Release do GitHub quando uma tag v* é empurrada
 #
 # Uso:
-#   git tag v1.2.0-ptbr.1
-#   git push origin v1.2.0-ptbr.1
+#   git tag v1.2.0-Beta-ptbr.2
+#   git push origin v1.2.0-Beta-ptbr.2
 #
 # O workflow:
-#   1. Compila o OPL com os mods
-#   2. Gera um ZIP com ELF + .lng + .ttf + conf_opl.cfg + INFO.txt
-#   3. Cria um Release no GitHub anexando o ZIP
+#   1. Compila o OPL com os mods PT-BR + Performance
+#   2. Baixa o uLaunchELF mais atual do repo oficial ps2homebrew/wLaunchELF
+#   3. Gera um ZIP supercomprimido contendo apenas:
+#      - OPNPS2LD.ELF (OPL com PT-BR embutido)
+#      - BOOT.ELF (uLaunchELF)
+#   4. Cria um Release no GitHub anexando o ZIP
 # =============================================================================
 name: Release OPL PT-BR Mod
 
@@ -19,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag name (e.g. v1.2.0-ptbr.1)'
+        description: 'Tag name (e.g. v1.2.0-Beta-ptbr.2)'
         required: true
         default: 'v0.0.0-manual'
 
@@ -38,7 +41,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apk add --no-cache python3 py3-yaml zip git bash make
+          # python3 + zip + git + curl para baixar uLaunchELF da API do GitHub
+          apk add --no-cache python3 py3-yaml zip git bash make curl
 
       - name: Determine tag
         id: tag
@@ -61,37 +65,76 @@ jobs:
         working-directory: opl
         run: make -j"$(nproc)" NOT_PACKED=0 DEBUG=0 PADEMU=0
 
-      - name: Prepare release package
+      - name: Verify OPL ELF
+        run: |
+          # Validar que o ELF foi gerado e é um ELF MIPS válido
+          ls -lh opl/OPNPS2LD.ELF
+          head -c 4 opl/OPNPS2LD.ELF | od -An -tx1 | grep -q "7f 45 4c 46" || {
+            echo "ERRO: OPNPS2LD.ELF não é um ELF válido!"
+            exit 1
+          }
+          echo "✅ OPNPS2LD.ELF é um ELF válido"
+
+      - name: Download latest uLaunchELF from upstream
+        run: |
+          # Baixar o BOOT.ELF do release "latest" do ps2homebrew/wLaunchELF
+          # Sem auth — endpoint público
+          echo "==> Baixando uLaunchELF (BOOT.ELF) do release latest..."
+          curl -fL --retry 3 -o BOOT.ELF \
+            https://github.com/ps2homebrew/wLaunchELF/releases/download/latest/BOOT.ELF
+
+          # Validar
+          ls -lh BOOT.ELF
+          head -c 4 BOOT.ELF | od -An -tx1 | grep -q "7f 45 4c 46" || {
+            echo "ERRO: BOOT.ELF não é um ELF válido!"
+            exit 1
+          }
+          echo "✅ BOOT.ELF (uLaunchELF) é um ELF válido"
+
+          # Capturar SHA do commit do uLaunchELF para referência
+          ULE_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/main \
+                    | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'][:7])" 2>/dev/null || echo "unknown")
+          echo "ULE_SHA=${ULE_SHA}" >> $GITHUB_ENV
+          echo "uLaunchELF SHA: ${ULE_SHA}"
+
+      - name: Create minimal kit (only OPL + uLaunchELF)
         run: |
           TAG="${{ steps.tag.outputs.name }}"
           PKG_DIR="OPL-PTBR-Mod-${TAG}"
           mkdir -p "${PKG_DIR}"
+
+          # Só 2 arquivos: OPL + uLaunchELF
           cp opl/OPNPS2LD.ELF "${PKG_DIR}/"
-          cp opl/lng/lang_Portuguese_BR.lng "${PKG_DIR}/" 2>/dev/null || true
-          cp opl/lng_src/thirdparty/font_Portuguese_BR.ttf "${PKG_DIR}/" 2>/dev/null || true
-          cp mods/conf_opl.cfg "${PKG_DIR}/" 2>/dev/null || true
-          # INFO.txt
-          cat > "${PKG_DIR}/INFO.txt" <<EOF
-          OPL PT-BR Mod — Release ${TAG}
-          ============================================
-          Upstream SHA: ${{ env.UPSTREAM_SHA }}
-          Mod SHA:      ${{ github.sha }}
-          Build date:   $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-          Versão OPL:   $(cd opl && make oplversion 2>/dev/null || echo 'unknown')
+          cp BOOT.ELF "${PKG_DIR}/"
 
-          Perfil: Performance + USB-default + PT-BR único + IGR + VMC
+          ls -lh "${PKG_DIR}/"
 
-          Instalação:
-            1. Copie OPNPS2LD.ELF para mc0:/OPL/ (via uLaunchELF, FTP, etc.)
-            2. (Opcional) Copie lang_Portuguese_BR.lng e font_Portuguese_BR.ttf
-            3. (Opcional) Copie conf_opl.cfg para forçar as settings no primeiro boot
-            4. Boot via FreeMcBoot / FreeHDBoot / uLaunchELF
+      - name: Create supercompressed ZIP
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          PKG_DIR="OPL-PTBR-Mod-${TAG}"
+          ZIP_FILE="${PKG_DIR}.zip"
 
-          Combo IGR: L1+R1+L2+R2+Start+Select (volta ao OPL sem desligar o console)
-          EOF
-          # Gerar ZIP
-          zip -r "${PKG_DIR}.zip" "${PKG_DIR}/"
-          echo "PKG_FILE=${PKG_DIR}.zip" >> $GITHUB_ENV
+          # Supercompressão: zip -9 + deflate máximo
+          # -9 = máxima compressão deflate
+          # -X = não guardar atributos de arquivo extras (menor overhead)
+          # --best = alias para -9
+          zip -9 -X -r "${ZIP_FILE}" "${PKG_DIR}/"
+
+          # Alternativa: usar 7z (se disponível) com LZMA2 para compressão ainda maior
+          # Mas Alpine não vem com 7z por padrão, e o ganho em ELFs (binários) é pequeno
+          # porque ELF já é binário comprimido (ps2-packer já fez o trabalho)
+
+          ls -lh "${ZIP_FILE}"
+          echo "PKG_FILE=${ZIP_FILE}" >> $GITHUB_ENV
+
+          # Calcular tamanho antes/depois para mostrar no release notes
+          RAW_SIZE=$(du -b "${PKG_DIR}/OPNPS2LD.ELF" "${PKG_DIR}/BOOT.ELF" | tail -1 | cut -f1)
+          ZIP_SIZE=$(stat -c%s "${ZIP_FILE}")
+          RATIO=$(python3 -c "print(f'{$ZIP_SIZE/$RAW_SIZE*100:.1f}')")
+          echo "Tamanho raw: $((RAW_SIZE/1024)) KB"
+          echo "Tamanho ZIP: $((ZIP_SIZE/1024)) KB"
+          echo "Ratio: ${RATIO}% do original"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -101,44 +144,46 @@ jobs:
           body: |
             # OPL PT-BR Mod ${{ steps.tag.outputs.name }}
 
-            Build automático do Open PS2 Loader com mods PT-BR + Performance.
+            ## 📦 Conteúdo do kit (mínimo, só o essencial)
 
-            ## O que tem neste release
+            | Arquivo | O que é |
+            |---------|---------|
+            | `OPNPS2LD.ELF` | OPL v1.2.0-Beta com PT-BR embutido + perfil Performance |
+            | `BOOT.ELF` | uLaunchELF mais atual (baixado automaticamente do [ps2homebrew/wLaunchELF](https://github.com/ps2homebrew/wLaunchELF/releases/latest)) |
 
-            - **`OPNPS2LD.ELF`** — ELF principal pronto para o PS2
-            - **`lang_Portuguese_BR.lng`** — Arquivo de idioma PT-BR (opcional — ELF já tem PT-BR embutido)
-            - **`font_Portuguese_BR.ttf`** — Fonte PT-BR (opcional)
-            - **`conf_opl.cfg`** — Configurações pré-definidas (opcional)
-            - **`INFO.txt`** — Metadados do build
+            Tudo já vem configurado. Não precisa de arquivos de idioma, fontes ou config externos.
 
-            ## Configuração embutida
+            ## ✅ O que já vem pronto
 
-            - **Idioma:** PT-BR (embutido no ELF, sem precisar de .lng externo)
-            - **Perfil:** Performance + USB-default
-            - **Recursos:** IGR + VMC ativos
-            - **Sources:** USB ativo por padrão (HDD/ETH/APP desativados, mas reativáveis via Settings)
-            - **Recursos desativados no build:** PADEMU, GSM, IGS, ILINK, MX4SIO, RTL
+            - 🇧🇷 PT-BR embutido no ELF (idioma padrão)
+            - ⚡ Perfil Performance (caches grandes, write on, art on, SFX on, scroll rápido)
+            - 🔌 USB ativo no boot (vai direto pra lista de jogos)
+            - 🎮 IGR + VMC ativos
+            - 💾 Suporte a FAT12, FAT16, FAT32 e exFAT
+            - 🪶 Build enxuta: PADEMU, GSM, IGS, ILINK, MX4SIO, RTL desativados
 
-            ## Instalação
+            ## 🚀 Instalação rápida
 
-            1. Copie `OPNPS2LD.ELF` para `mc0:/OPL/` no seu PS2 (via uLaunchELF, FTP, ou pendrive)
-            2. (Opcional) Copie `lang_Portuguese_BR.lng` e `font_Portuguese_BR.ttf` para `mc0:/OPL/`
-            3. (Opcional) Copie `conf_opl.cfg` para `mc0:/OPL/` para forçar as settings no primeiro boot
-            4. Boot via **FreeMcBoot**, **FreeHDBoot**, ou **uLaunchELF**
+            1. Descompacte o ZIP no computador
+            2. Copie `OPNPS2LD.ELF` e `BOOT.ELF` para um pendrive (FAT32 ou exFAT)
+            3. No PS2 com FreeMcBoot, abra o uLaunchELF
+            4. Copie `OPNPS2LD.ELF` para `mc0:/OPL/` e `BOOT.ELF` para `mc0:/BOOT/`
+            5. Reinicie — OPL e uLaunchELF aparecerão no menu do FMCB
 
-            ## Combo IGR
+            ## ⌨️ Combo IGR
 
             `L1 + R1 + L2 + R2 + Start + Select` — volta ao OPL sem desligar o console.
 
-            ## Builds anteriores
+            ## 🛠️ Build details
 
-            Veja todos os releases em: https://github.com/${{ github.repository }}/releases
+            - **OPL upstream SHA:** `${{ env.UPSTREAM_SHA }}`
+            - **uLaunchELF SHA:** `${{ env.ULE_SHA }}`
+            - **Mod repo SHA:** `${{ github.sha }}`
+            - **Build date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
             ---
 
-            Build details:
-            - Upstream OPL SHA: `${{ env.UPSTREAM_SHA }}`
-            - Mod repo SHA: `${{ github.sha }}`
+            Builds anteriores: https://github.com/${{ github.repository }}/releases
           files: ${{ env.PKG_FILE }}
           draft: false
           prerelease: ${{ contains(steps.tag.outputs.name, '-beta') || contains(steps.tag.outputs.name, '-rc') }}
