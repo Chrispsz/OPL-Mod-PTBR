@@ -121,7 +121,7 @@ jobs:
           # Capturar SHA do último commit do branch main do wLaunchELF
           # (a tag "latest" aponta pro mesmo commit, mas a API /releases/latest
           #  retorna a última estável de 2019, então usamos a API de commits)
-          ULE_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/main \
+          ULE_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/master \
                     | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'])" 2>/dev/null || echo "")
           if [ -z "${ULE_SHA}" ]; then
             # Fallback: tentar pegar o SHA da tag "latest" diretamente
@@ -131,7 +131,7 @@ jobs:
           ULE_SHORT="${ULE_SHA:0:7}"
 
           # Pegar data do commit
-          ULE_DATE=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/main \
+          ULE_DATE=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/master \
                      | python3 -c "import json,sys;print(json.load(sys.stdin)['commit']['author']['date'][:10])" 2>/dev/null || echo "unknown")
 
           echo "ule_sha=${ULE_SHA}" >> $GITHUB_OUTPUT

@@ -48,7 +48,7 @@ jobs:
           OPL_SHORT="${OPL_SHA:0:7}"
 
           # uLaunchELF (branch main — tag "latest" é móvel e aponta pro mesmo commit)
-          ULE_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/main \
+          ULE_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/master \
                     | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'])")
           ULE_SHORT="${ULE_SHA:0:7}"
 
