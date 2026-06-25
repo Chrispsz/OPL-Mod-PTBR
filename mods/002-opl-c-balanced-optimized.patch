@@ -1,30 +1,22 @@
 diff --git a/src/opl.c b/src/opl.c
-index a6d8fa3..55148b4 100644
+index a6d8fa3..87b08b2 100644
 --- a/src/opl.c
 +++ b/src/opl.c
-@@ -1699,9 +1699,10 @@ static void setDefaults(void)
+@@ -1699,6 +1699,8 @@ static void setDefaults(void)
      gHDDPrefix = "pfs0:";
      gBaseMCDir = "mc?:OPL";
  
--    bdmCacheSize = 16;
--    hddCacheSize = 8;
--    smbCacheSize = 16;
-+    // Perfil Performance — caches CDVD maiores
-+    bdmCacheSize = 32;
-+    hddCacheSize = 16;
-+    smbCacheSize = 32;
- 
-     ps2_ip_use_dhcp = 1;
-     gETHOpMode = ETH_OP_MODE_AUTO;
-@@ -1733,34 +1734,36 @@ static void setDefaults(void)
-     gPCPassword[0] = '\0';
-     gNetworkStartup = ERROR_ETH_NOT_STARTED;
++    // Caches CDVD mantidos no default oficial (16/8/16).
++    // Pesquisa PSX-Place confirma: valores maiores deixam ZSO mais lento.
+     bdmCacheSize = 16;
+     hddCacheSize = 8;
+     smbCacheSize = 16;
+@@ -1735,23 +1737,24 @@ static void setDefaults(void)
      gHDDSpindown = 20;
--    gScrollSpeed = 1;
-+    gScrollSpeed = 2; // Perfil Performance — rolagem rápida
+     gScrollSpeed = 1;
      gExitPath[0] = '\0';
 -    gDefaultDevice = APP_MODE;
-+    // Perfil Performance — device default = USB (universal, todo PS2 tem)
++    // Device default = USB (universal, todo PS2 tem porta USB)
 +    gDefaultDevice = BDM_MODE;
      gAutosort = 1;
 -    gAutoRefresh = 0;
@@ -52,17 +44,14 @@ index a6d8fa3..55148b4 100644
 +    gEnableSFX = 1;
 +    gEnableBootSND = 1;
      gEnableBGM = 0;
--    gSFXVolume = 80;
--    gBootSndVolume = 80;
-+    gSFXVolume = 100;
-+    gBootSndVolume = 100;
-     gBGMVolume = 70;
-     gDefaultBGMPath[0] = '\0';
+     gSFXVolume = 80;
+     gBootSndVolume = 80;
+@@ -1760,7 +1763,8 @@ static void setDefaults(void)
      gXSensitivity = 1;
      gYSensitivity = 1;
  
 -    gBDMStartMode = START_MODE_DISABLED;
-+    // Perfil Performance — USB ativo no boot; HDD/ETH/APP desativados
++    // USB ativo no boot; HDD/ETH/APP desativados (reativáveis via Settings)
 +    gBDMStartMode = START_MODE_AUTO;
      gHDDStartMode = START_MODE_DISABLED;
      gETHStartMode = START_MODE_DISABLED;
