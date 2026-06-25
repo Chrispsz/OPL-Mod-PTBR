@@ -32,8 +32,9 @@ jobs:
         run: |
           # Imagem ps2dev/ps2dev:latest já tem TUDO:
           # - ps2sdk + gsKit + ps2sdk-ports + ps2eth + ps2client + ps2-packer
-          # Só precisamos de python3 (para lang_compiler.py), zip (artifact) e git (clone)
-          apk add --no-cache python3 py3-yaml zip git
+          # Só precisamos de python3 (para lang_compiler.py), zip (artifact),
+          # git (clone) e bash (nossos scripts)
+          apk add --no-cache python3 py3-yaml zip git bash
 
       - name: Verify environment
         run: |
