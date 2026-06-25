@@ -31,9 +31,9 @@ jobs:
       - name: Install dependencies
         run: |
           # Imagem ps2dev/ps2sdk é baseada em Alpine Linux
-          # libmpc/libmpfr/libgmp são necessários para o gcc MIPS rodar (bug na imagem base)
+          # gmp/mpfr/mpc1 são necessários para o gcc MIPS rodar (bug na imagem base)
           apk add --no-cache python3 py3-yaml zip curl bash git make \
-            libmpc libmpfr libgmp libgcc libstdc++
+            gmp mpfr mpc1 libgcc libstdc++
 
       - name: Clone upstream OPL
         run: |
