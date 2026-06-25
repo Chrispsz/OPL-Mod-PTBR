@@ -30,7 +30,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     container:
-      image: ps2dev/ps2sdk:latest
+      image: ghcr.io/ps2dev/ps2sdk-ports:latest
 
     steps:
       - name: Checkout mod repo
@@ -38,11 +38,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Imagem ps2dev/ps2sdk é baseada em Alpine Linux
-          # gmp/mpfr/mpc1 são necessários para o gcc MIPS rodar (bug na imagem base)
-          # cmake é necessário para compilar o gsKit
-          apk add --no-cache python3 py3-yaml zip curl bash git make cmake \
-            gmp mpfr mpc1 libgcc libstdc++
+          apk add --no-cache python3 py3-yaml zip curl bash git make
 
       - name: Determine tag
         id: tag
@@ -57,15 +53,6 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
           echo "UPSTREAM_SHA=$(cd opl && git rev-parse HEAD)" >> $GITHUB_ENV
-
-      - name: Install gsKit (not bundled in ps2dev/ps2sdk image)
-        run: |
-          # gsKit é necessário para o OPL mas não vem na imagem Docker
-          git clone --depth 1 https://github.com/ps2dev/gsKit.git /tmp/gsKit
-          cd /tmp/gsKit
-          make -j"$(nproc)" || make
-          make install
-          ls -la /usr/local/ps2dev/gskit/include/gsKit.h
 
       - name: Apply mods
         run: bash scripts/apply-mods.sh opl
