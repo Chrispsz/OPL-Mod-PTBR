@@ -30,10 +30,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apt-get update -qq
-          apt-get install -y --no-install-recommends python3-yaml zip
-          python3 -m pip install --upgrade pip
-          pip install pyyaml
+          # Imagem ps2dev/ps2sdk é baseada em Alpine Linux
+          apk add --no-cache python3 py3-yaml zip curl bash
 
       - name: Clone upstream OPL
         run: |
