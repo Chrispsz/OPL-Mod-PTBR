@@ -117,19 +117,20 @@ jobs:
         if: steps.decide.outputs.should_release == 'true'
         id: tag
         run: |
-          # Pegar última tag v*.Beta-ptbr.* e incrementar
+          # Pegar última tag v*-Beta-ptbr.* e incrementar
           LAST_TAG=$(git tag -l "v*-Beta-ptbr.*" | sort -V | tail -1)
           echo "Última tag: ${LAST_TAG}"
 
           if [ -z "${LAST_TAG}" ]; then
             NEW_TAG="v1.2.0-Beta-ptbr.1"
           else
-            # Extrair número final e incrementar
-            NUM=$(echo "${LAST_TAG}" | grep -oE '\.ptbr\.[0-9]+$' | grep -oE '[0-9]+$')
+            # Extrair número final após .ptbr. e incrementar
+            # Ex: v1.2.0-Beta-ptbr.3 -> NUM=3, NEW_NUM=4, NEW_TAG=v1.2.0-Beta-ptbr.4
+            NUM=$(echo "${LAST_TAG}" | grep -oE 'ptbr\.[0-9]+$' | grep -oE '[0-9]+$')
             NEW_NUM=$((NUM + 1))
-            # Manter o prefixo (v1.2.0-Beta-ptbr.)
-            PREFIX=$(echo "${LAST_TAG}" | sed 's/\.[0-9]*$//')
-            NEW_TAG="${PREFIX}.${NEW_NUM}"
+            # Prefixo = tudo até e incluindo "ptbr."
+            PREFIX=$(echo "${LAST_TAG}" | sed -E 's/ptbr\.[0-9]+$/ptbr./')
+            NEW_TAG="${PREFIX}${NEW_NUM}"
           fi
 
           echo "Nova tag: ${NEW_TAG}"
