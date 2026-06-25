@@ -30,9 +30,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Imagem ghcr.io/ps2dev/ps2sdk-ports já tem ps2sdk + ports instalados
-          # (incluindo gsKit). Só precisamos de tools básicas.
-          apk add --no-cache python3 py3-yaml zip curl bash git make
+          # Imagem ghcr.io/ps2dev/ps2sdk-ports já tem ps2sdk + ports (gsKit etc.)
+          # mas é Alpine e tem bug: faltam libs runtime do gcc MIPS
+          apk add --no-cache python3 py3-yaml zip curl bash git make \
+            gmp mpfr mpc1 libgcc libstdc++
 
       - name: Verify gsKit is available
         run: |

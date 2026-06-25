@@ -38,7 +38,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apk add --no-cache python3 py3-yaml zip curl bash git make
+          # Imagem ghcr.io/ps2dev/ps2sdk-ports: Alpine + bug de libs runtime do gcc MIPS
+          apk add --no-cache python3 py3-yaml zip curl bash git make \
+            gmp mpfr mpc1 libgcc libstdc++
 
       - name: Determine tag
         id: tag
