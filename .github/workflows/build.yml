@@ -1,0 +1,85 @@
+# =============================================================================
+# build.yml — Build do OPL PT-BR Mod em cada push/PR
+#
+# Aciona em:
+#   - Push para main ou ptbr-mod
+#   - Pull request para main
+#
+# Output:
+#   - Artifact OPNPS2LD-<sha> contendo OPNPS2LD.ELF + .lng + .ttf + conf_opl.cfg
+#   - Disponível por 90 dias para download
+# =============================================================================
+name: Build OPL PT-BR Mod
+
+on:
+  push:
+    branches: [main, ptbr-mod]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ps2dev/ps2sdk:latest
+
+    steps:
+      - name: Checkout mod repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends python3-yaml zip
+          python3 -m pip install --upgrade pip
+          pip install pyyaml
+
+      - name: Clone upstream OPL
+        run: |
+          git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
+          echo "UPSTREAM_SHA=$(cd opl && git rev-parse HEAD)" >> $GITHUB_ENV
+
+      - name: Apply mods
+        run: bash scripts/apply-mods.sh opl
+
+      - name: Build OPL
+        working-directory: opl
+        run: |
+          make -j"$(nproc)" NOT_PACKED=0 DEBUG=0 PADEMU=0
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifact
+          cp opl/OPNPS2LD.ELF artifact/
+          cp opl/lng/lang_Portuguese_BR.lng artifact/ 2>/dev/null || true
+          cp opl/lng_src/thirdparty/font_Portuguese_BR.ttf artifact/ 2>/dev/null || true
+          cp mods/conf_opl.cfg artifact/ 2>/dev/null || true
+          # Gerar arquivo INFO com metadados
+          cat > artifact/INFO.txt <<EOF
+          OPL PT-BR Mod — Build ${{ github.sha }}
+          ============================================
+          Upstream SHA: ${{ env.UPSTREAM_SHA }}
+          Mod SHA:      ${{ github.sha }}
+          Build date:   $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          Versão OPL:   $(cd opl && make oplversion 2>/dev/null || echo 'unknown')
+
+          Perfil: Performance + USB-default + PT-BR único + IGR + VMC
+          Sources ativas por default: USB (BDM)
+          Sources desativadas (compiladas): HDD, ETH/SMB, APP
+          Recursos desativados no build: PADEMU, GSM, IGS, ILINK, MX4SIO, RTL
+
+          Instalação:
+            1. Copie OPNPS2LD.ELF para mc0:/OPL/ (via uLaunchELF, FTP, etc.)
+            2. (Opcional) Copie lang_Portuguese_BR.lng e font_Portuguese_BR.ttf
+            3. (Opcional) Copie conf_opl.cfg para forçar as settings no primeiro boot
+            4. Boot via FreeMcBoot / FreeHDBoot / uLaunchELF
+          EOF
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OPNPS2LD-${{ github.sha }}
+          path: artifact/
+          retention-days: 90
+          if-no-files-found: error

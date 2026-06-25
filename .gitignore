@@ -1,0 +1,25 @@
+# Build artifacts (não commitar)
+/artifacts/
+*.elf
+*.ELF
+*.ZIP
+*.zip
+!mods/**/*.zip
+
+# Upstream clone local (para testes)
+/opl/
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

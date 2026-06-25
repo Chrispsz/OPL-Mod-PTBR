@@ -1,0 +1,69 @@
+diff --git a/src/opl.c b/src/opl.c
+index a6d8fa3..55148b4 100644
+--- a/src/opl.c
++++ b/src/opl.c
+@@ -1699,9 +1699,10 @@ static void setDefaults(void)
+     gHDDPrefix = "pfs0:";
+     gBaseMCDir = "mc?:OPL";
+ 
+-    bdmCacheSize = 16;
+-    hddCacheSize = 8;
+-    smbCacheSize = 16;
++    // Perfil Performance — caches CDVD maiores
++    bdmCacheSize = 32;
++    hddCacheSize = 16;
++    smbCacheSize = 32;
+ 
+     ps2_ip_use_dhcp = 1;
+     gETHOpMode = ETH_OP_MODE_AUTO;
+@@ -1733,34 +1734,36 @@ static void setDefaults(void)
+     gPCPassword[0] = '\0';
+     gNetworkStartup = ERROR_ETH_NOT_STARTED;
+     gHDDSpindown = 20;
+-    gScrollSpeed = 1;
++    gScrollSpeed = 2; // Perfil Performance — rolagem rápida
+     gExitPath[0] = '\0';
+-    gDefaultDevice = APP_MODE;
++    // Perfil Performance — device default = USB (universal, todo PS2 tem)
++    gDefaultDevice = BDM_MODE;
+     gAutosort = 1;
+-    gAutoRefresh = 0;
++    gAutoRefresh = 1;
+     gEnableDebug = 0;
+     gPS2Logo = 0;
+-    gHDDGameListCache = 0;
+-    gEnableWrite = 0;
+-    gRememberLastPlayed = 0;
++    gHDDGameListCache = 1;
++    gEnableWrite = 1;
++    gRememberLastPlayed = 1;
+     gAutoStartLastPlayed = 9;
+     gSelectButton = KEY_CIRCLE; // Default to Japan.
+     gBDMPrefix[0] = '\0';
+     gETHPrefix[0] = '\0';
+-    gEnableNotifications = 0;
+-    gEnableArt = 0;
+-    gWideScreen = 0;
+-    gEnableSFX = 0;
+-    gEnableBootSND = 0;
++    gEnableNotifications = 1;
++    gEnableArt = 1;
++    gWideScreen = 1;
++    gEnableSFX = 1;
++    gEnableBootSND = 1;
+     gEnableBGM = 0;
+-    gSFXVolume = 80;
+-    gBootSndVolume = 80;
++    gSFXVolume = 100;
++    gBootSndVolume = 100;
+     gBGMVolume = 70;
+     gDefaultBGMPath[0] = '\0';
+     gXSensitivity = 1;
+     gYSensitivity = 1;
+ 
+-    gBDMStartMode = START_MODE_DISABLED;
++    // Perfil Performance — USB ativo no boot; HDD/ETH/APP desativados
++    gBDMStartMode = START_MODE_AUTO;
+     gHDDStartMode = START_MODE_DISABLED;
+     gETHStartMode = START_MODE_DISABLED;
+     gAPPStartMode = START_MODE_DISABLED;

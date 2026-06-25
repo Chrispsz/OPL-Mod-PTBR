@@ -1,0 +1,146 @@
+# =============================================================================
+# release.yml — Cria um Release do GitHub quando uma tag v* é empurrada
+#
+# Uso:
+#   git tag v1.2.0-ptbr.1
+#   git push origin v1.2.0-ptbr.1
+#
+# O workflow:
+#   1. Compila o OPL com os mods
+#   2. Gera um ZIP com ELF + .lng + .ttf + conf_opl.cfg + INFO.txt
+#   3. Cria um Release no GitHub anexando o ZIP
+# =============================================================================
+name: Release OPL PT-BR Mod
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name (e.g. v1.2.0-ptbr.1)'
+        required: true
+        default: 'v0.0.0-manual'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container:
+      image: ps2dev/ps2sdk:latest
+
+    steps:
+      - name: Checkout mod repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends python3-yaml zip
+          pip install pyyaml
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Clone upstream OPL
+        run: |
+          git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
+          echo "UPSTREAM_SHA=$(cd opl && git rev-parse HEAD)" >> $GITHUB_ENV
+
+      - name: Apply mods
+        run: bash scripts/apply-mods.sh opl
+
+      - name: Build OPL
+        working-directory: opl
+        run: make -j"$(nproc)" NOT_PACKED=0 DEBUG=0 PADEMU=0
+
+      - name: Prepare release package
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          PKG_DIR="OPL-PTBR-Mod-${TAG}"
+          mkdir -p "${PKG_DIR}"
+          cp opl/OPNPS2LD.ELF "${PKG_DIR}/"
+          cp opl/lng/lang_Portuguese_BR.lng "${PKG_DIR}/" 2>/dev/null || true
+          cp opl/lng_src/thirdparty/font_Portuguese_BR.ttf "${PKG_DIR}/" 2>/dev/null || true
+          cp mods/conf_opl.cfg "${PKG_DIR}/" 2>/dev/null || true
+          # INFO.txt
+          cat > "${PKG_DIR}/INFO.txt" <<EOF
+          OPL PT-BR Mod — Release ${TAG}
+          ============================================
+          Upstream SHA: ${{ env.UPSTREAM_SHA }}
+          Mod SHA:      ${{ github.sha }}
+          Build date:   $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          Versão OPL:   $(cd opl && make oplversion 2>/dev/null || echo 'unknown')
+
+          Perfil: Performance + USB-default + PT-BR único + IGR + VMC
+
+          Instalação:
+            1. Copie OPNPS2LD.ELF para mc0:/OPL/ (via uLaunchELF, FTP, etc.)
+            2. (Opcional) Copie lang_Portuguese_BR.lng e font_Portuguese_BR.ttf
+            3. (Opcional) Copie conf_opl.cfg para forçar as settings no primeiro boot
+            4. Boot via FreeMcBoot / FreeHDBoot / uLaunchELF
+
+          Combo IGR: L1+R1+L2+R2+Start+Select (volta ao OPL sem desligar o console)
+          EOF
+          # Gerar ZIP
+          zip -r "${PKG_DIR}.zip" "${PKG_DIR}/"
+          echo "PKG_FILE=${PKG_DIR}.zip" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: OPL PT-BR Mod ${{ steps.tag.outputs.name }}
+          body: |
+            # OPL PT-BR Mod ${{ steps.tag.outputs.name }}
+
+            Build automático do Open PS2 Loader com mods PT-BR + Performance.
+
+            ## O que tem neste release
+
+            - **`OPNPS2LD.ELF`** — ELF principal pronto para o PS2
+            - **`lang_Portuguese_BR.lng`** — Arquivo de idioma PT-BR (opcional — ELF já tem PT-BR embutido)
+            - **`font_Portuguese_BR.ttf`** — Fonte PT-BR (opcional)
+            - **`conf_opl.cfg`** — Configurações pré-definidas (opcional)
+            - **`INFO.txt`** — Metadados do build
+
+            ## Configuração embutida
+
+            - **Idioma:** PT-BR (embutido no ELF, sem precisar de .lng externo)
+            - **Perfil:** Performance + USB-default
+            - **Recursos:** IGR + VMC ativos
+            - **Sources:** USB ativo por padrão (HDD/ETH/APP desativados, mas reativáveis via Settings)
+            - **Recursos desativados no build:** PADEMU, GSM, IGS, ILINK, MX4SIO, RTL
+
+            ## Instalação
+
+            1. Copie `OPNPS2LD.ELF` para `mc0:/OPL/` no seu PS2 (via uLaunchELF, FTP, ou pendrive)
+            2. (Opcional) Copie `lang_Portuguese_BR.lng` e `font_Portuguese_BR.ttf` para `mc0:/OPL/`
+            3. (Opcional) Copie `conf_opl.cfg` para `mc0:/OPL/` para forçar as settings no primeiro boot
+            4. Boot via **FreeMcBoot**, **FreeHDBoot**, ou **uLaunchELF**
+
+            ## Combo IGR
+
+            `L1 + R1 + L2 + R2 + Start + Select` — volta ao OPL sem desligar o console.
+
+            ## Builds anteriores
+
+            Veja todos os releases em: https://github.com/${{ github.repository }}/releases
+
+            ---
+
+            Build details:
+            - Upstream OPL SHA: `${{ env.UPSTREAM_SHA }}`
+            - Mod repo SHA: `${{ github.sha }}`
+          files: ${{ env.PKG_FILE }}
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.name, '-beta') || contains(steps.tag.outputs.name, '-rc') }}

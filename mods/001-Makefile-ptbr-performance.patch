@@ -1,0 +1,49 @@
+diff --git a/Makefile b/Makefile
+index d02af90..80e5bc5 100644
+--- a/Makefile
++++ b/Makefile
+@@ -34,7 +34,8 @@ RTL ?= $(EXTRA_FEATURES)
+ IGS ?= $(EXTRA_FEATURES)
+ 
+ #Enables/disables pad emulator
+-PADEMU ?= 1
++# Desativado nesta build customizada (não escolhido pelo usuário)
++PADEMU ?= 0
+ 
+ #Enables/disables building of an edition of OPL that will support the DTL-T10000 (SDK v2.3+)
+ DTL_T10000 ?= 0
+@@ -107,9 +108,8 @@ AUDIO_OBJS =	boot.o cancel.o confirm.o cursor.o message.o transition.o bd_connec
+ 
+ MISC_OBJS =	icon_sys_A.o icon_sys_J.o icon_sys_C.o conf_theme_OPL.o
+ 
+-TRANSLATIONS = Albanian Arabic Bulgarian Cebuano Croatian Czech Danish Dutch Filipino French \
+-	German Greek Hungarian Indonesian Italian Japanese Korean Laotian Persian Polish Portuguese \
+-	Portuguese_BR Romana Russian Ryukyuan SChinese Spanish Swedish TChinese Turkish Vietnamese
++# Restrito a PT-BR nesta build customizada (idioma único)
++TRANSLATIONS = Portuguese_BR
+ 
+ EE_BIN = opl.elf
+ EE_BIN_STRIPPED = opl_stripped.elf
+@@ -782,6 +782,8 @@ TRANSLATIONS_YML = $(TRANSLATIONS:%=$(LNG_SRC_DIR)%.yml)
+ ENGLISH_TEMPLATE_YML = $(LNG_SRC_DIR)English.yml
+ ENGLISH_LNG = $(LNG_SRC_DIR)lang_English.lng
+ BASE_LANGUAGE = $(LNG_TMPL_DIR)_base.yml
++# Versão PT-BR do _base.yml, usada para gerar lang_internal.c com PT-BR embutido
++INTERNAL_BASE_LANGUAGE = $(LNG_TMPL_DIR)_base_ptbr.yml
+ INTERNAL_LANGUAGE_C = src/lang_internal.c
+ INTERNAL_LANGUAGE_H = include/lang_autogen.h
+ LANG_COMPILER = lang_compiler.py
+@@ -809,7 +811,12 @@ $(ENGLISH_TEMPLATE_YML): $(BASE_LANGUAGE) $(LANG_COMPILER)
+ $(ENGLISH_LNG): $(ENGLISH_TEMPLATE_YML) $(BASE_LANGUAGE) $(LANG_COMPILER)
+ 	python3 $(LANG_COMPILER) --make_lng --base $(BASE_LANGUAGE) --translation $< $@
+ 
+-$(INTERNAL_LANGUAGE_C): $(BASE_LANGUAGE) $(LANG_COMPILER)
++# Gera _base_ptbr.yml a partir de _base.yml + Portuguese_BR.yml (precisa do lng_src baixado)
++$(INTERNAL_BASE_LANGUAGE): $(BASE_LANGUAGE) $(LNG_SRC_DIR)Portuguese_BR.yml merge_ptbr.py
++	python3 merge_ptbr.py
++
++# Gera lang_internal.c com strings PT-BR embutidas (em vez de inglês)
++$(INTERNAL_LANGUAGE_C): $(INTERNAL_BASE_LANGUAGE) $(LANG_COMPILER)
+ 	python3 $(LANG_COMPILER) --make_source --base $< $@
+ 
+ $(INTERNAL_LANGUAGE_H): $(BASE_LANGUAGE) $(LANG_COMPILER)

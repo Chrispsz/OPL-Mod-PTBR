@@ -1,0 +1,100 @@
+# =============================================================================
+# sync-upstream.yml — Sincroniza com upstream OPL semanalmente
+#
+# Roda todo domingo às 23:00 UTC (= 20:00 BRT).
+# Se o upstream tiver novos commits:
+#   1. Testa se os mods ainda aplicam limpo
+#   2. Se sim: atualiza upstream.sha e faz commit/push no branch main
+#   3. O build.yml é disparado automaticamente pelo push
+#   4. Se não: cria uma issue avisando que precisa de intervenção manual
+#
+# Requer o secret GH_PAT (Personal Access Token com scope repo + workflow)
+# configurado em Settings > Secrets and variables > Actions.
+# =============================================================================
+name: Sync Upstream
+
+on:
+  schedule:
+    # Todo domingo 23:00 UTC = 20:00 horário de Brasília
+    - cron: '0 23 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # Usa PAT pra poder disparar outros workflows no push
+    # (GITHUB_TOKEN não dispara workflows em push)
+    if: github.repository != 'ps2homebrew/Open-PS2-Loader'
+
+    steps:
+      - name: Checkout mod repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0
+
+      - name: Get latest upstream SHA
+        id: upstream
+        run: |
+          SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/Open-PS2-Loader/commits/main \
+                | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'])")
+          echo "sha=${SHA}" >> $GITHUB_OUTPUT
+          echo "short=${SHA:0:7}" >> $GITHUB_OUTPUT
+          echo "Upstream latest: ${SHA:0:7}"
+
+      - name: Check current SHA
+        id: current
+        run: |
+          CURRENT=$(cat upstream.sha 2>/dev/null || echo "")
+          echo "current=${CURRENT}" >> $GITHUB_OUTPUT
+          echo "Current recorded: ${CURRENT:0:7}"
+
+      - name: Skip if no changes
+        if: steps.current.outputs.current == steps.upstream.outputs.sha
+        run: echo "Sem mudanças no upstream. Saindo."
+
+      - name: Test mods apply cleanly
+        if: steps.current.outputs.current != steps.upstream.outputs.sha
+        id: test
+        run: |
+          set +e
+          git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git /tmp/opl-test 2>&1 | tail -2
+          bash scripts/apply-mods.sh /tmp/opl-test > /tmp/apply.log 2>&1
+          APPLY_RC=$?
+          if [ ${APPLY_RC} -ne 0 ]; then
+            echo "apply_failed=true" >> $GITHUB_OUTPUT
+            echo "Mods não aplicam limpo no novo upstream:"
+            cat /tmp/apply.log
+          else
+            echo "apply_failed=false" >> $GITHUB_OUTPUT
+            echo "Mods aplicam limpo ✓"
+          fi
+
+      - name: Update upstream.sha and push
+        if: steps.test.outputs.apply_failed == 'false' && steps.current.outputs.current != steps.upstream.outputs.sha
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "${{ steps.upstream.outputs.sha }}" > upstream.sha
+          git add upstream.sha
+          git commit -m "chore: sync upstream to ${{ steps.upstream.outputs.short }}
+
+          Auto-sync via sync-upstream.yml workflow.
+          Upstream: ${{ steps.upstream.outputs.sha }}
+          "
+          git push
+          echo "Push realizado. O workflow build.yml vai disparar automaticamente."
+
+      - name: Create issue if mods fail to apply
+        if: steps.test.outputs.apply_failed == 'true'
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: "⚠️ Sync upstream falhou — intervenção manual necessária"
+          content-filepath: /tmp/apply.log
+          labels: |
+            upstream-sync
+            needs-attention
