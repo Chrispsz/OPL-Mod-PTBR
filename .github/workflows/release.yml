@@ -57,6 +57,15 @@ jobs:
           git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
           echo "UPSTREAM_SHA=$(cd opl && git rev-parse HEAD)" >> $GITHUB_ENV
 
+      - name: Install gsKit (not bundled in ps2dev/ps2sdk image)
+        run: |
+          # gsKit é necessário para o OPL mas não vem na imagem Docker
+          git clone --depth 1 https://github.com/ps2dev/gsKit.git /tmp/gsKit
+          cd /tmp/gsKit
+          make -j"$(nproc)" || make
+          make install
+          ls -la /usr/local/ps2dev/gskit/include/gsKit.h
+
       - name: Apply mods
         run: bash scripts/apply-mods.sh opl
 
