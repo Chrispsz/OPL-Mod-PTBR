@@ -1,10 +1,10 @@
 # OPL Mod PT-BR
 
-[![Build](https://github.com/{{USER}}/OPL-Mod-PTBR/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/{{USER}}/OPL-Mod-PTBR/actions/workflows/build.yml)
-[![Release](https://github.com/{{USER}}/OPL-Mod-PTBR/actions/workflows/release.yml/badge.svg)](https://github.com/{{USER}}/OPL-Mod-PTBR/releases)
-[![Sync Upstream](https://github.com/{{USER}}/OPL-Mod-PTBR/actions/workflows/sync-upstream.yml/badge.svg)](https://github.com/{{USER}}/OPL-Mod-PTBR/actions/workflows/sync-upstream.yml)
+[![Build](https://github.com/Chrispsz/OPL-Mod-PTBR/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/Chrispsz/OPL-Mod-PTBR/actions/workflows/build.yml)
+[![Release](https://github.com/Chrispsz/OPL-Mod-PTBR/actions/workflows/release.yml/badge.svg)](https://github.com/Chrispsz/OPL-Mod-PTBR/releases)
+[![Sync Upstream](https://github.com/Chrispsz/OPL-Mod-PTBR/actions/workflows/sync-upstream.yml/badge.svg)](https://github.com/Chrispsz/OPL-Mod-PTBR/actions/workflows/sync-upstream.yml)
 
-> **Substitua `{{USER}}` pelo seu usuário GitHub em todo este README depois de criar o repo.**
+> **Substitua `Chrispsz` pelo seu usuário GitHub em todo este README depois de criar o repo.**
 
 Build customizada do [Open PS2 Loader (OPL)](https://github.com/ps2homebrew/Open-PS2-Loader) com:
 
@@ -67,7 +67,7 @@ Se você só quer o ELF compilado, sem compilar nada:
 
 ```bash
 # Clonar este repo
-git clone https://github.com/{{USER}}/OPL-Mod-PTBR.git
+git clone https://github.com/Chrispsz/OPL-Mod-PTBR.git
 cd OPL-Mod-PTBR
 
 # Build em container Docker
@@ -85,7 +85,7 @@ docker run --rm -v "$PWD:/work" -w /work ps2dev/ps2sdk:latest bash -c '
 Se você já tem PS2SDK + gsKit instalados:
 
 ```bash
-git clone https://github.com/{{USER}}/OPL-Mod-PTBR.git
+git clone https://github.com/Chrispsz/OPL-Mod-PTBR.git
 cd OPL-Mod-PTBR
 git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
 bash scripts/apply-mods.sh opl
@@ -149,9 +149,9 @@ Depois de criar o repo no GitHub:
    - Value: cole o token
    - Add secret
 
-4. **Atualize este README** substituindo `{{USER}}` pelo seu usuário GitHub:
+4. **Atualize este README** substituindo `Chrispsz` pelo seu usuário GitHub:
    ```bash
-   sed -i 's|{{USER}}|seu-usuario|g' README.md
+   sed -i 's|Chrispsz|seu-usuario|g' README.md
    git commit -am "docs: substitui placeholder de usuário"
    git push
    ```
