@@ -39,7 +39,7 @@ jobs:
       - name: Install dependencies
         run: |
           # Imagem ps2dev/ps2sdk é baseada em Alpine Linux
-          apk add --no-cache python3 py3-yaml zip curl bash
+          apk add --no-cache python3 py3-yaml zip curl bash git make
 
       - name: Determine tag
         id: tag
