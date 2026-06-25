@@ -38,7 +38,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apk add --no-cache python3 py3-yaml zip
+          apk add --no-cache python3 py3-yaml zip git
 
       - name: Determine tag
         id: tag
