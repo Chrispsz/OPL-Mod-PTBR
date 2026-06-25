@@ -2,16 +2,20 @@
 # release.yml — Cria um Release do GitHub quando uma tag v* é empurrada
 #
 # Uso:
-#   git tag v1.2.0-Beta-ptbr.2
-#   git push origin v1.2.0-Beta-ptbr.2
+#   git tag v1.2.0-Beta-ptbr.3
+#   git push origin v1.2.0-Beta-ptbr.3
 #
 # O workflow:
-#   1. Compila o OPL com os mods PT-BR + Performance
-#   2. Baixa o uLaunchELF mais atual do repo oficial ps2homebrew/wLaunchELF
-#   3. Gera um ZIP supercomprimido contendo apenas:
+#   1. Compila o OPL com os mods PT-BR + Performance (do branch main do upstream)
+#   2. Baixa o uLaunchELF mais atual (tag "latest" do ps2homebrew/wLaunchELF,
+#      que é uma tag móvel atualizada pelo CI deles a cada commit no main)
+#   3. Captura metadados: SHAs, datas, versões (em steps separados, não inline)
+#   4. Gera um ZIP supercomprimido contendo apenas:
 #      - OPNPS2LD.ELF (OPL com PT-BR embutido)
 #      - BOOT.ELF (uLaunchELF)
-#   4. Cria um Release no GitHub anexando o ZIP
+#   5. Cria um Release PRE-RELEASE no GitHub anexando o ZIP
+#
+# TODAS as releases são marcadas como pre-release (build de desenvolvimento).
 # =============================================================================
 name: Release OPL PT-BR Mod
 
@@ -22,9 +26,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag name (e.g. v1.2.0-Beta-ptbr.2)'
+        description: 'Tag name (e.g. v1.2.0-Beta-ptbr.3)'
         required: true
-        default: 'v0.0.0-manual'
+        default: 'v1.2.0-Beta-ptbr.3'
 
 permissions:
   contents: write
@@ -41,22 +45,45 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # python3 + zip + git + curl para baixar uLaunchELF da API do GitHub
           apk add --no-cache python3 py3-yaml zip git bash make curl
 
-      - name: Determine tag
-        id: tag
+      - name: Capture build metadata
+        id: meta
         run: |
+          # Tag do release
           if [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "name=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+            TAG="${{ github.event.inputs.tag }}"
           else
-            echo "name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            TAG="${GITHUB_REF#refs/tags/}"
           fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
-      - name: Clone upstream OPL
+          # Build date em UTC (gerado AQUI, antes do action-gh-release, que não interpreta shell)
+          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+
+      - name: Clone upstream OPL (branch main — mais atual)
         run: |
+          # --depth 1 pega o commit HEAD do branch main (default) do upstream
           git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
-          echo "UPSTREAM_SHA=$(cd opl && git rev-parse HEAD)" >> $GITHUB_ENV
+          UPSTREAM_SHA=$(cd opl && git rev-parse HEAD)
+          UPSTREAM_SHORT="${UPSTREAM_SHA:0:7}"
+
+          # Pegar data do commit upstream
+          UPSTREAM_DATE=$(cd opl && git log -1 --format=%cd --date=format:'%Y-%m-%d')
+
+          # Pegar versão OPL
+          OPL_VERSION=$(cd opl && make oplversion 2>/dev/null || echo "unknown")
+
+          echo "UPSTREAM_SHA=${UPSTREAM_SHA}" >> $GITHUB_ENV
+          echo "UPSTREAM_SHORT=${UPSTREAM_SHORT}" >> $GITHUB_ENV
+          echo "UPSTREAM_DATE=${UPSTREAM_DATE}" >> $GITHUB_ENV
+          echo "OPL_VERSION=${OPL_VERSION}" >> $GITHUB_ENV
+
+          echo "==> Upstream:"
+          echo "    SHA:     ${UPSTREAM_SHORT}"
+          echo "    Date:    ${UPSTREAM_DATE}"
+          echo "    Version: ${OPL_VERSION}"
 
       - name: Apply mods
         run: bash scripts/apply-mods.sh opl
@@ -67,39 +94,58 @@ jobs:
 
       - name: Verify OPL ELF
         run: |
-          # Validar que o ELF foi gerado e é um ELF MIPS válido
           ls -lh opl/OPNPS2LD.ELF
           head -c 4 opl/OPNPS2LD.ELF | od -An -tx1 | grep -q "7f 45 4c 46" || {
             echo "ERRO: OPNPS2LD.ELF não é um ELF válido!"
             exit 1
           }
-          echo "✅ OPNPS2LD.ELF é um ELF válido"
+          echo "✅ OPNPS2LD.ELF é um ELF MIPS válido"
 
-      - name: Download latest uLaunchELF from upstream
+      - name: Download latest uLaunchELF
+        id: ule
         run: |
-          # Baixar o BOOT.ELF do release "latest" do ps2homebrew/wLaunchELF
-          # Sem auth — endpoint público
-          echo "==> Baixando uLaunchELF (BOOT.ELF) do release latest..."
+          # Tag "latest" do ps2homebrew/wLaunchELF é uma tag MÓVEL atualizada
+          # automaticamente pelo CI deles a cada push no branch main.
+          # É pre-release (build de desenvolvimento) — exatamente o que queremos.
+          echo "==> Baixando uLaunchELF (BOOT.ELF) da tag latest..."
           curl -fL --retry 3 -o BOOT.ELF \
             https://github.com/ps2homebrew/wLaunchELF/releases/download/latest/BOOT.ELF
 
-          # Validar
           ls -lh BOOT.ELF
           head -c 4 BOOT.ELF | od -An -tx1 | grep -q "7f 45 4c 46" || {
             echo "ERRO: BOOT.ELF não é um ELF válido!"
             exit 1
           }
-          echo "✅ BOOT.ELF (uLaunchELF) é um ELF válido"
+          echo "✅ BOOT.ELF (uLaunchELF) é um ELF MIPS válido"
 
-          # Capturar SHA do commit do uLaunchELF para referência
+          # Capturar SHA do último commit do branch main do wLaunchELF
+          # (a tag "latest" aponta pro mesmo commit, mas a API /releases/latest
+          #  retorna a última estável de 2019, então usamos a API de commits)
           ULE_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/main \
-                    | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'][:7])" 2>/dev/null || echo "unknown")
-          echo "ULE_SHA=${ULE_SHA}" >> $GITHUB_ENV
-          echo "uLaunchELF SHA: ${ULE_SHA}"
+                    | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'])" 2>/dev/null || echo "")
+          if [ -z "${ULE_SHA}" ]; then
+            # Fallback: tentar pegar o SHA da tag "latest" diretamente
+            ULE_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/git/refs/tags/latest \
+                      | python3 -c "import json,sys;print(json.load(sys.stdin)['object']['sha'])" 2>/dev/null || echo "unknown")
+          fi
+          ULE_SHORT="${ULE_SHA:0:7}"
+
+          # Pegar data do commit
+          ULE_DATE=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/main \
+                     | python3 -c "import json,sys;print(json.load(sys.stdin)['commit']['author']['date'][:10])" 2>/dev/null || echo "unknown")
+
+          echo "ule_sha=${ULE_SHA}" >> $GITHUB_OUTPUT
+          echo "ule_short=${ULE_SHORT}" >> $GITHUB_OUTPUT
+          echo "ule_date=${ULE_DATE}" >> $GITHUB_OUTPUT
+
+          echo ""
+          echo "==> uLaunchELF:"
+          echo "    SHA:  ${ULE_SHORT}"
+          echo "    Date: ${ULE_DATE}"
 
       - name: Create minimal kit (only OPL + uLaunchELF)
         run: |
-          TAG="${{ steps.tag.outputs.name }}"
+          TAG="${{ steps.meta.outputs.tag }}"
           PKG_DIR="OPL-PTBR-Mod-${TAG}"
           mkdir -p "${PKG_DIR}"
 
@@ -111,45 +157,30 @@ jobs:
 
       - name: Create supercompressed ZIP
         run: |
-          TAG="${{ steps.tag.outputs.name }}"
+          TAG="${{ steps.meta.outputs.tag }}"
           PKG_DIR="OPL-PTBR-Mod-${TAG}"
           ZIP_FILE="${PKG_DIR}.zip"
 
-          # Supercompressão: zip -9 + deflate máximo
-          # -9 = máxima compressão deflate
-          # -X = não guardar atributos de arquivo extras (menor overhead)
-          # --best = alias para -9
+          # Supercompressão: -9 (máxima deflate) + -X (sem atributos extras)
           zip -9 -X -r "${ZIP_FILE}" "${PKG_DIR}/"
-
-          # Alternativa: usar 7z (se disponível) com LZMA2 para compressão ainda maior
-          # Mas Alpine não vem com 7z por padrão, e o ganho em ELFs (binários) é pequeno
-          # porque ELF já é binário comprimido (ps2-packer já fez o trabalho)
 
           ls -lh "${ZIP_FILE}"
           echo "PKG_FILE=${ZIP_FILE}" >> $GITHUB_ENV
 
-          # Calcular tamanho antes/depois para mostrar no release notes
-          RAW_SIZE=$(du -b "${PKG_DIR}/OPNPS2LD.ELF" "${PKG_DIR}/BOOT.ELF" | tail -1 | cut -f1)
-          ZIP_SIZE=$(stat -c%s "${ZIP_FILE}")
-          RATIO=$(python3 -c "print(f'{$ZIP_SIZE/$RAW_SIZE*100:.1f}')")
-          echo "Tamanho raw: $((RAW_SIZE/1024)) KB"
-          echo "Tamanho ZIP: $((ZIP_SIZE/1024)) KB"
-          echo "Ratio: ${RATIO}% do original"
-
-      - name: Create GitHub Release
+      - name: Create GitHub Release (always pre-release)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.name }}
-          name: OPL PT-BR Mod ${{ steps.tag.outputs.name }}
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: OPL PT-BR Mod ${{ steps.meta.outputs.tag }}
           body: |
-            # OPL PT-BR Mod ${{ steps.tag.outputs.name }}
+            # OPL PT-BR Mod ${{ steps.meta.outputs.tag }}
 
             ## 📦 Conteúdo do kit (mínimo, só o essencial)
 
             | Arquivo | O que é |
             |---------|---------|
-            | `OPNPS2LD.ELF` | OPL v1.2.0-Beta com PT-BR embutido + perfil Performance |
-            | `BOOT.ELF` | uLaunchELF mais atual (baixado automaticamente do [ps2homebrew/wLaunchELF](https://github.com/ps2homebrew/wLaunchELF/releases/latest)) |
+            | `OPNPS2LD.ELF` | OPL ${{ env.OPL_VERSION }} com PT-BR embutido + perfil Performance |
+            | `BOOT.ELF` | uLaunchELF mais atual (tag `latest` do [ps2homebrew/wLaunchELF](https://github.com/ps2homebrew/wLaunchELF/releases/tag/latest)) |
 
             Tudo já vem configurado. Não precisa de arquivos de idioma, fontes ou config externos.
 
@@ -176,14 +207,19 @@ jobs:
 
             ## 🛠️ Build details
 
-            - **OPL upstream SHA:** `${{ env.UPSTREAM_SHA }}`
-            - **uLaunchELF SHA:** `${{ env.ULE_SHA }}`
-            - **Mod repo SHA:** `${{ github.sha }}`
-            - **Build date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+            | Componente | SHA | Data |
+            |------------|-----|------|
+            | OPL upstream (branch main) | `${{ env.UPSTREAM_SHORT }}` | ${{ env.UPSTREAM_DATE }} |
+            | uLaunchELF (tag latest) | `${{ steps.ule.outputs.ule_short }}` | ${{ steps.ule.outputs.ule_date }} |
+            | Mod repo (este) | `${{ github.sha }}` | — |
+            | Build date | — | ${{ steps.meta.outputs.build_date }} |
+
+            **Versão OPL:** ${{ env.OPL_VERSION }}
 
             ---
 
             Builds anteriores: https://github.com/${{ github.repository }}/releases
           files: ${{ env.PKG_FILE }}
           draft: false
-          prerelease: ${{ contains(steps.tag.outputs.name, '-beta') || contains(steps.tag.outputs.name, '-rc') }}
+          prerelease: true   # Sempre pre-release (build de desenvolvimento)
+          make_latest: false # Não marcar como "Latest" no GitHub (evita confusão)

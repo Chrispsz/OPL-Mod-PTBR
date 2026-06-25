@@ -1,0 +1,160 @@
+# =============================================================================
+# auto-release.yml — Cria release automática semanal
+#
+# Roda todo domingo às 23:00 UTC (= 20:00 horário de Brasília).
+#
+# Lógica:
+#   1. Verifica SHA do OPL upstream (branch main) vs último registrado
+#   2. Verifica SHA do uLaunchELF (branch main) vs último registrado
+#   3. Se QUALQUER UM mudou → cria nova tag e dispara release.yml
+#   4. Se nada mudou → pula
+#
+# Requer o secret GH_PAT (já configurado) para poder criar tags.
+# =============================================================================
+name: Auto-Release Semanal
+
+on:
+  schedule:
+    # Todo domingo 23:00 UTC = 20:00 BRT
+    - cron: '0 23 * * 0'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Forçar release mesmo sem mudanças no upstream (true/false)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-release:
+    runs-on: ubuntu-latest
+    if: github.repository != 'ps2homebrew/Open-PS2-Loader'
+
+    steps:
+      - name: Checkout mod repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0
+
+      - name: Get latest SHAs from upstream
+        id: upstream
+        run: |
+          # OPL upstream (branch main)
+          OPL_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/Open-PS2-Loader/commits/main \
+                    | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'])")
+          OPL_SHORT="${OPL_SHA:0:7}"
+
+          # uLaunchELF (branch main — tag "latest" é móvel e aponta pro mesmo commit)
+          ULE_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/main \
+                    | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'])")
+          ULE_SHORT="${ULE_SHA:0:7}"
+
+          echo "opl_sha=${OPL_SHA}" >> $GITHUB_OUTPUT
+          echo "opl_short=${OPL_SHORT}" >> $GITHUB_OUTPUT
+          echo "ule_sha=${ULE_SHA}" >> $GITHUB_OUTPUT
+          echo "ule_short=${ULE_SHORT}" >> $GITHUB_OUTPUT
+
+          echo "==> Upstream atual:"
+          echo "    OPL: ${OPL_SHORT}"
+          echo "    ULE: ${ULE_SHORT}"
+
+      - name: Get last recorded SHAs
+        id: last
+        run: |
+          # SHAs são guardados em upstream.sha (OPL) e ule.sha (uLaunchELF)
+          OPL_LAST=$(cat upstream.sha 2>/dev/null || echo "")
+          ULE_LAST=$(cat ule.sha 2>/dev/null || echo "")
+
+          echo "opl_last=${OPL_LAST}" >> $GITHUB_OUTPUT
+          echo "ule_last=${ULE_LAST}" >> $GITHUB_OUTPUT
+
+          echo "==> Último registrado:"
+          echo "    OPL: ${OPL_LAST:0:7}"
+          echo "    ULE: ${ULE_LAST:0:7}"
+
+      - name: Determine if release is needed
+        id: decide
+        run: |
+          FORCE="${{ github.event.inputs.force || 'false' }}"
+          OPL_CHANGED="false"
+          ULE_CHANGED="false"
+
+          if [ "${{ steps.upstream.outputs.opl_sha }}" != "${{ steps.last.outputs.opl_last }}" ]; then
+            OPL_CHANGED="true"
+          fi
+          if [ "${{ steps.upstream.outputs.ule_sha }}" != "${{ steps.last.outputs.ule_last }}" ]; then
+            ULE_CHANGED="true"
+          fi
+
+          if [ "${OPL_CHANGED}" = "true" ] || [ "${ULE_CHANGED}" = "true" ] || [ "${FORCE}" = "true" ]; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "==> Decisão: CRIAR release (OPL_CHANGED=${OPL_CHANGED}, ULE_CHANGED=${ULE_CHANGED}, FORCE=${FORCE})"
+          else
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "==> Decisão: SEM release (nada mudou)"
+          fi
+
+          echo "opl_changed=${OPL_CHANGED}" >> $GITHUB_OUTPUT
+          echo "ule_changed=${ULE_CHANGED}" >> $GITHUB_OUTPUT
+
+      - name: Update SHA files
+        if: steps.decide.outputs.should_release == 'true'
+        run: |
+          # Atualizar os arquivos de SHA
+          echo "${{ steps.upstream.outputs.opl_sha }}" > upstream.sha
+          echo "${{ steps.upstream.outputs.ule_sha }}" > ule.sha
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add upstream.sha ule.sha
+          git commit -m "chore: registrar SHAs upstream (OPL ${{ steps.upstream.outputs.opl_short }}, ULE ${{ steps.upstream.outputs.ule_short }})" || echo "nada pra commitar"
+          git push
+
+      - name: Compute next tag name
+        if: steps.decide.outputs.should_release == 'true'
+        id: tag
+        run: |
+          # Pegar última tag v*.Beta-ptbr.* e incrementar
+          LAST_TAG=$(git tag -l "v*-Beta-ptbr.*" | sort -V | tail -1)
+          echo "Última tag: ${LAST_TAG}"
+
+          if [ -z "${LAST_TAG}" ]; then
+            NEW_TAG="v1.2.0-Beta-ptbr.1"
+          else
+            # Extrair número final e incrementar
+            NUM=$(echo "${LAST_TAG}" | grep -oE '\.ptbr\.[0-9]+$' | grep -oE '[0-9]+$')
+            NEW_NUM=$((NUM + 1))
+            # Manter o prefixo (v1.2.0-Beta-ptbr.)
+            PREFIX=$(echo "${LAST_TAG}" | sed 's/\.[0-9]*$//')
+            NEW_TAG="${PREFIX}.${NEW_NUM}"
+          fi
+
+          echo "Nova tag: ${NEW_TAG}"
+          echo "name=${NEW_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Create and push tag
+        if: steps.decide.outputs.should_release == 'true'
+        run: |
+          NEW_TAG="${{ steps.tag.outputs.name }}"
+
+          # Mensagem da tag com motivo
+          REASON=""
+          if [ "${{ steps.decide.outputs.opl_changed }}" = "true" ]; then
+            REASON="${REASON} OPL upstream atualizado (${{ steps.upstream.outputs.opl_short }});"
+          fi
+          if [ "${{ steps.decide.outputs.ule_changed }}" = "true" ]; then
+            REASON="${REASON} uLaunchELF atualizado (${{ steps.upstream.outputs.ule_short }});"
+          fi
+          if [ -z "${REASON}" ]; then
+            REASON="release manual forçada"
+          fi
+
+          git tag -a "${NEW_TAG}" -m "Auto-release: ${REASON}"
+          git push origin "${NEW_TAG}"
+
+          echo ""
+          echo "✅ Tag ${NEW_TAG} criada e enviada!"
+          echo "   O workflow release.yml vai disparar automaticamente e criar a release."
