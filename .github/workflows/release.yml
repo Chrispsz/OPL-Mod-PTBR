@@ -2,18 +2,22 @@
 # release.yml — Cria um Release do GitHub quando uma tag v* é empurrada
 #
 # Uso:
-#   git tag v1.2.0-Beta-ptbr.3
-#   git push origin v1.2.0-Beta-ptbr.3
+#   git tag v1.2.0-Beta-ptbr.6
+#   git push origin v1.2.0-Beta-ptbr.6
 #
-# O workflow:
-#   1. Compila o OPL com os mods PT-BR + Performance (do branch main do upstream)
-#   2. Baixa o uLaunchELF mais atual (tag "latest" do ps2homebrew/wLaunchELF,
-#      que é uma tag móvel atualizada pelo CI deles a cada commit no main)
-#   3. Captura metadados: SHAs, datas, versões (em steps separados, não inline)
-#   4. Gera um ZIP supercomprimido contendo apenas:
-#      - OPNPS2LD.ELF (OPL com PT-BR embutido)
-#      - BOOT.ELF (uLaunchELF)
-#   5. Cria um Release PRE-RELEASE no GitHub anexando o ZIP
+# O workflow cria DOIS assets no release:
+#
+# 1. OPL-PTBR-Mod-Kit-vX.Y.Z.zip — Kit PS2 (ELFs):
+#    - OPNPS2LD.ELF (OPL com PT-BR embutido + perfil Balanced-Optimized)
+#    - BOOT.ELF (uLaunchELF mais atual)
+#    - MCA.ELF (Memory Card Annihilator v2.2.0)
+#    - HDLGameInstaller.ELF (instalar jogos no HDD interno do PS2 Fat)
+#    - MFU.ELF (Memory Card Formatter v1.2)
+#
+# 2. OPL-PTBR-Mod-Linux-Tools-vX.Y.Z.tar.gz — Ferramentas Linux:
+#    - ps2client (CLI para enviar ELF ao PS2 via rede)
+#    - OPL-PC-Tools (GUI Qt para gerenciar jogos OPL)
+#    - HDL-Batch-Installer (GUI Java para instalar jogos no HDD PS2)
 #
 # TODAS as releases são marcadas como pre-release (build de desenvolvimento).
 # =============================================================================
@@ -26,9 +30,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag name (e.g. v1.2.0-Beta-ptbr.3)'
+        description: 'Tag name (e.g. v1.2.0-Beta-ptbr.6)'
         required: true
-        default: 'v1.2.0-Beta-ptbr.3'
+        default: 'v1.2.0-Beta-ptbr.6'
 
 permissions:
   contents: write
@@ -45,45 +49,31 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apk add --no-cache python3 py3-yaml zip git bash make curl
+          apk add --no-cache python3 py3-yaml zip git bash make curl p7zip tar
 
       - name: Capture build metadata
         id: meta
         run: |
-          # Tag do release
           if [ -n "${{ github.event.inputs.tag }}" ]; then
             TAG="${{ github.event.inputs.tag }}"
           else
             TAG="${GITHUB_REF#refs/tags/}"
           fi
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
-
-          # Build date em UTC (gerado AQUI, antes do action-gh-release, que não interpreta shell)
           BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
 
-      - name: Clone upstream OPL (branch main — mais atual)
+      - name: Clone upstream OPL (branch main)
         run: |
-          # --depth 1 pega o commit HEAD do branch main (default) do upstream
           git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
           UPSTREAM_SHA=$(cd opl && git rev-parse HEAD)
           UPSTREAM_SHORT="${UPSTREAM_SHA:0:7}"
-
-          # Pegar data do commit upstream
           UPSTREAM_DATE=$(cd opl && git log -1 --format=%cd --date=format:'%Y-%m-%d')
-
-          # Pegar versão OPL
           OPL_VERSION=$(cd opl && make oplversion 2>/dev/null || echo "unknown")
-
           echo "UPSTREAM_SHA=${UPSTREAM_SHA}" >> $GITHUB_ENV
           echo "UPSTREAM_SHORT=${UPSTREAM_SHORT}" >> $GITHUB_ENV
           echo "UPSTREAM_DATE=${UPSTREAM_DATE}" >> $GITHUB_ENV
           echo "OPL_VERSION=${OPL_VERSION}" >> $GITHUB_ENV
-
-          echo "==> Upstream:"
-          echo "    SHA:     ${UPSTREAM_SHORT}"
-          echo "    Date:    ${UPSTREAM_DATE}"
-          echo "    Version: ${OPL_VERSION}"
 
       - name: Apply mods
         run: bash scripts/apply-mods.sh opl
@@ -104,68 +94,149 @@ jobs:
       - name: Download latest uLaunchELF
         id: ule
         run: |
-          # Tag "latest" do ps2homebrew/wLaunchELF é uma tag MÓVEL atualizada
-          # automaticamente pelo CI deles a cada push no branch main.
-          # É pre-release (build de desenvolvimento) — exatamente o que queremos.
           echo "==> Baixando uLaunchELF (BOOT.ELF) da tag latest..."
           curl -fL --retry 3 -o BOOT.ELF \
             https://github.com/ps2homebrew/wLaunchELF/releases/download/latest/BOOT.ELF
 
-          ls -lh BOOT.ELF
           head -c 4 BOOT.ELF | od -An -tx1 | grep -q "7f 45 4c 46" || {
             echo "ERRO: BOOT.ELF não é um ELF válido!"
             exit 1
           }
           echo "✅ BOOT.ELF (uLaunchELF) é um ELF MIPS válido"
 
-          # Capturar SHA do último commit do branch main do wLaunchELF
-          # (a tag "latest" aponta pro mesmo commit, mas a API /releases/latest
-          #  retorna a última estável de 2019, então usamos a API de commits)
           ULE_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/master \
                     | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'])" 2>/dev/null || echo "")
           if [ -z "${ULE_SHA}" ]; then
-            # Fallback: tentar pegar o SHA da tag "latest" diretamente
-            ULE_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/git/refs/tags/latest \
-                      | python3 -c "import json,sys;print(json.load(sys.stdin)['object']['sha'])" 2>/dev/null || echo "unknown")
+            ULE_SHA=$(git ls-remote https://github.com/ps2homebrew/wLaunchELF.git refs/tags/latest | cut -f1)
           fi
           ULE_SHORT="${ULE_SHA:0:7}"
-
-          # Pegar data do commit
           ULE_DATE=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/master \
                      | python3 -c "import json,sys;print(json.load(sys.stdin)['commit']['author']['date'][:10])" 2>/dev/null || echo "unknown")
-
           echo "ule_sha=${ULE_SHA}" >> $GITHUB_OUTPUT
           echo "ule_short=${ULE_SHORT}" >> $GITHUB_OUTPUT
           echo "ule_date=${ULE_DATE}" >> $GITHUB_OUTPUT
 
-          echo ""
-          echo "==> uLaunchELF:"
-          echo "    SHA:  ${ULE_SHORT}"
-          echo "    Date: ${ULE_DATE}"
+      - name: Download Memory Card Annihilator v2.2.0
+        run: |
+          echo "==> Baixando Memory Card Annihilator v2.2.0..."
+          curl -fL --retry 3 -o /tmp/mca.zip \
+            https://github.com/ffgriever-pl/Memory-Card-Annihilator/releases/download/v2.2.0/MemoryCardAnihilator_v2.2.0.zip
+          unzip -j /tmp/mca.zip "mca_legacy/mca-packed.elf" -d /tmp/
+          cp /tmp/mca-packed.elf MCA.ELF
+          ls -lh MCA.ELF
+          head -c 4 MCA.ELF | od -An -tx1 | grep -q "7f 45 4c 46" || {
+            echo "ERRO: MCA.ELF não é um ELF válido!"
+            exit 1
+          }
+          echo "✅ MCA.ELF (Memory Card Annihilator) é um ELF MIPS válido"
 
-      - name: Create minimal kit (only OPL + uLaunchELF)
+      - name: Download HDLGameInstaller v0.821
+        run: |
+          echo "==> Baixando HDLGameInstaller v0.821..."
+          curl -fL --retry 3 -o /tmp/hdl.7z \
+            https://github.com/ps2homebrew/HDLGameInstaller/releases/download/v0.821/181208.HDLGameInstaller-0821-bin.7z
+          7z x /tmp/hdl.7z -o/tmp/hdl -y > /dev/null
+          HDL_ELF=$(find /tmp/hdl -name "*.ELF" -o -name "*.elf" | head -1)
+          if [ -z "${HDL_ELF}" ]; then
+            echo "ERRO: ELF do HDLGameInstaller não encontrado!"
+            ls -la /tmp/hdl/
+            exit 1
+          fi
+          cp "${HDL_ELF}" HDLGameInstaller.ELF
+          ls -lh HDLGameInstaller.ELF
+          head -c 4 HDLGameInstaller.ELF | od -An -tx1 | grep -q "7f 45 4c 46" || {
+            echo "ERRO: HDLGameInstaller.ELF não é um ELF válido!"
+            exit 1
+          }
+          echo "✅ HDLGameInstaller.ELF é um ELF MIPS válido"
+
+      - name: Download PS2 Memory Card Formatter v1.2
+        run: |
+          echo "==> Baixando PS2 Memory Card Formatter v1.2..."
+          curl -fL --retry 3 -o MFU.ELF \
+            https://github.com/Zero1UP/PS2-Memory-Card-Formatter/releases/download/v1.2/MFU-Packed.elf
+          ls -lh MFU.ELF
+          head -c 4 MFU.ELF | od -An -tx1 | grep -q "7f 45 4c 46" || {
+            echo "ERRO: MFU.ELF não é um ELF válido!"
+            exit 1
+          }
+          echo "✅ MFU.ELF (Memory Formatter Utility) é um ELF MIPS válido"
+
+      - name: Create PS2 kit ZIP (all ELFs)
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
-          PKG_DIR="OPL-PTBR-Mod-${TAG}"
+          PKG_DIR="OPL-PTBR-Mod-Kit-${TAG}"
           mkdir -p "${PKG_DIR}"
 
-          # Só 2 arquivos: OPL + uLaunchELF
           cp opl/OPNPS2LD.ELF "${PKG_DIR}/"
           cp BOOT.ELF "${PKG_DIR}/"
+          cp MCA.ELF "${PKG_DIR}/"
+          cp HDLGameInstaller.ELF "${PKG_DIR}/"
+          cp MFU.ELF "${PKG_DIR}/"
 
+          echo "==> Conteúdo do kit PS2:"
           ls -lh "${PKG_DIR}/"
 
-      - name: Create supercompressed ZIP
+          zip -9 -X -r "OPL-PTBR-Mod-Kit-${TAG}.zip" "${PKG_DIR}/"
+          ls -lh "OPL-PTBR-Mod-Kit-${TAG}.zip"
+          echo "PS2_KIT=OPL-PTBR-Mod-Kit-${TAG}.zip" >> $GITHUB_ENV
+
+      - name: Download Linux tools
+        run: |
+          mkdir -p linux-tools
+
+          echo "==> 1/3: ps2client v1.3.0..."
+          curl -fL --retry 3 -o /tmp/ps2client.tar.gz \
+            https://github.com/ps2dev/ps2client/releases/download/v1.3.0/ps2client-211df54b-ubuntu-latest.tar.gz
+          mkdir -p linux-tools/ps2client
+          tar xzf /tmp/ps2client.tar.gz -C linux-tools/ps2client
+          ls -la linux-tools/ps2client/
+
+          echo ""
+          echo "==> 2/3: OPL-PC-Tools v3.1..."
+          curl -fL --retry 3 -o /tmp/oplpctools.tar.gz \
+            https://github.com/brainstream/OPL-PC-Tools/releases/download/3.1/oplpctools_linux_3.1_amd64.tar.gz
+          mkdir -p linux-tools/oplpctools
+          tar xzf /tmp/oplpctools.tar.gz -C linux-tools/oplpctools --strip-components=1
+          ls linux-tools/oplpctools/ | head -5
+
+          echo ""
+          echo "==> 3/3: HDL-Batch-Installer v3.7.0..."
+          curl -fL --retry 3 -o /tmp/hdlbi.7z \
+            https://github.com/israpps/HDL-Batch-installer/releases/download/Latest/HDLBInst-x64-v3.7.0-rev3.7z
+          mkdir -p linux-tools/hdl-batch-installer
+          7z x /tmp/hdlbi.7z -olinux-tools/hdl-batch-installer -y > /dev/null
+          ls linux-tools/hdl-batch-installer/
+
+          cat > linux-tools/README.md <<'EOF'
+          # Ferramentas Linux para PS2 (Arch Linux compatível)
+
+          ## ps2client v1.3.0
+          CLI para interagir com PS2 via rede (precisa de ps2link no PS2).
+          Comandos úteis:
+            ps2client -h <ip-do-ps2> execee host:OPNPS2LD.ELF
+            ps2client -h <ip-do-ps2> list
+            ps2client -h <ip-do-ps2> putty
+
+          ## OPL-PC-Tools v3.1
+          GUI Qt para gerenciar jogos OPL no PC.
+          Permite renomear ISOs, baixar capas, converter ISO<->UL, gerenciar VMC.
+          Em Arch Linux: sudo pacman -S qt5-base qt5-tools
+          Depois: ./oplpctools
+
+          ## HDL-Batch-Installer v3.7.0
+          GUI Java para instalar jogos no HDD interno do PS2 Fat.
+          Permite instalar em lote, extrair jogos, formatar HDD APA.
+          Precisa de Java 8+: sudo pacman -S jre-openjdk
+          Depois: java -jar HDLBInst.jar
+          EOF
+
+      - name: Create Linux tools tarball
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
-          PKG_DIR="OPL-PTBR-Mod-${TAG}"
-          ZIP_FILE="${PKG_DIR}.zip"
-
-          # Supercompressão: -9 (máxima deflate) + -X (sem atributos extras)
-          zip -9 -X -r "${ZIP_FILE}" "${PKG_DIR}/"
-
-          ls -lh "${ZIP_FILE}"
-          echo "PKG_FILE=${ZIP_FILE}" >> $GITHUB_ENV
+          tar -czf "OPL-PTBR-Mod-Linux-Tools-${TAG}.tar.gz" linux-tools/
+          ls -lh "OPL-PTBR-Mod-Linux-Tools-${TAG}.tar.gz"
+          echo "LINUX_TOOLS=OPL-PTBR-Mod-Linux-Tools-${TAG}.tar.gz" >> $GITHUB_ENV
 
       - name: Create GitHub Release (always pre-release)
         uses: softprops/action-gh-release@v2
@@ -175,19 +246,30 @@ jobs:
           body: |
             # OPL PT-BR Mod ${{ steps.meta.outputs.tag }}
 
-            ## 📦 Conteúdo do kit (mínimo, só o essencial)
+            ## 📦 Assets disponíveis
+
+            ### 1. `OPL-PTBR-Mod-Kit-${{ steps.meta.outputs.tag }}.zip` — Kit PS2 (ELFs)
 
             | Arquivo | O que é |
             |---------|---------|
-            | `OPNPS2LD.ELF` | OPL ${{ env.OPL_VERSION }} com PT-BR embutido + perfil Performance |
-            | `BOOT.ELF` | uLaunchELF mais atual (tag `latest` do [ps2homebrew/wLaunchELF](https://github.com/ps2homebrew/wLaunchELF/releases/tag/latest)) |
+            | `OPNPS2LD.ELF` | OPL ${{ env.OPL_VERSION }} com PT-BR embutido + perfil Balanced-Optimized |
+            | `BOOT.ELF` | uLaunchELF mais atual (gerenciador de arquivos PS2) |
+            | `MCA.ELF` | Memory Card Annihilator v2.2.0 (formatar/gerenciar memory cards PS2 e PSX) |
+            | `HDLGameInstaller.ELF` | Instalar jogos no HDD interno do PS2 Fat (v0.821) |
+            | `MFU.ELF` | Memory Formatter Utility v1.2 (formata todos os cartões, suporta multitap) |
 
-            Tudo já vem configurado. Não precisa de arquivos de idioma, fontes ou config externos.
+            ### 2. `OPL-PTBR-Mod-Linux-Tools-${{ steps.meta.outputs.tag }}.tar.gz` — Ferramentas Linux (Arch compatível)
 
-            ## ✅ O que já vem pronto
+            | Tool | O que faz |
+            |------|-----------|
+            | `ps2client` v1.3.0 | CLI para enviar ELF ao PS2 via rede (requer ps2link no PS2) |
+            | `OPL-PC-Tools` v3.1 | GUI Qt para gerenciar jogos OPL (renomear, capas, VMC) |
+            | `HDL-Batch-Installer` v3.7.0 | GUI Java para instalar jogos no HDD interno do PS2 Fat |
+
+            ## ✅ O que já vem pronto (OPL)
 
             - 🇧🇷 PT-BR embutido no ELF (idioma padrão)
-            - ⚡ Perfil Performance (caches grandes, write on, art on, SFX on, scroll rápido)
+            - ⚖️ Perfil Balanced-Optimized: caches no default oficial, UX melhorada
             - 🔌 USB ativo no boot (vai direto pra lista de jogos)
             - 🎮 IGR + VMC ativos
             - 💾 Suporte a FAT12, FAT16, FAT32 e exFAT
@@ -195,31 +277,60 @@ jobs:
 
             ## 🚀 Instalação rápida
 
-            1. Descompacte o ZIP no computador
-            2. Copie `OPNPS2LD.ELF` e `BOOT.ELF` para um pendrive (FAT32 ou exFAT)
-            3. No PS2 com FreeMcBoot, abra o uLaunchELF
-            4. Copie `OPNPS2LD.ELF` para `mc0:/OPL/` e `BOOT.ELF` para `mc0:/BOOT/`
-            5. Reinicie — OPL e uLaunchELF aparecerão no menu do FMCB
+            ### OPL + ferramentas PS2
+            1. Descompacte o ZIP `OPL-PTBR-Mod-Kit-*.zip`
+            2. Copie os ELFs para um pendrive (FAT32 ou exFAT)
+            3. No PS2 com FreeMcBoot, abra o uLaunchELF (aparece no menu FMCB)
+            4. Copie:
+               - `OPNPS2LD.ELF` → `mc0:/OPL/`
+               - `BOOT.ELF` → `mc0:/BOOT/`
+               - `MCA.ELF`, `HDLGameInstaller.ELF`, `MFU.ELF` → `mc0:/APPS/` (crie a pasta)
+            5. Reinicie — apps aparecerão no menu FMCB
 
-            ## ⌨️ Combo IGR
+            ### Ferramentas Linux (Arch)
+            ```bash
+            tar xzf OPL-PTBR-Mod-Linux-Tools-*.tar.gz
+            cd linux-tools
+
+            # ps2client (CLI, não precisa instalar)
+            ./ps2client/ps2client -h <ip-do-ps2> execee host:OPNPS2LD.ELF
+
+            # OPL-PC-Tools (GUI Qt)
+            sudo pacman -S qt5-base qt5-tools
+            cd oplpctools && ./oplpctools
+
+            # HDL-Batch-Installer (GUI Java)
+            sudo pacman -S jre-openjdk
+            cd hdl-batch-installer && java -jar HDLBInst.jar
+            ```
+
+            ## ⌨️ Combo IGR (dentro de qualquer jogo)
 
             `L1 + R1 + L2 + R2 + Start + Select` — volta ao OPL sem desligar o console.
 
             ## 🛠️ Build details
 
-            | Componente | SHA | Data |
-            |------------|-----|------|
-            | OPL upstream (branch main) | `${{ env.UPSTREAM_SHORT }}` | ${{ env.UPSTREAM_DATE }} |
-            | uLaunchELF (tag latest) | `${{ steps.ule.outputs.ule_short }}` | ${{ steps.ule.outputs.ule_date }} |
-            | Mod repo (este) | `${{ github.sha }}` | — |
-            | Build date | — | ${{ steps.meta.outputs.build_date }} |
+            | Componente | Versão/SHA |
+            |------------|------------|
+            | OPL upstream | `${{ env.UPSTREAM_SHORT }}` (${{ env.UPSTREAM_DATE }}) |
+            | uLaunchELF | `${{ steps.ule.outputs.ule_short }}` (${{ steps.ule.outputs.ule_date }}) |
+            | Memory Card Annihilator | v2.2.0 |
+            | HDLGameInstaller | v0.821 |
+            | Memory Card Formatter | v1.2 |
+            | ps2client | v1.3.0 |
+            | OPL-PC-Tools | v3.1 |
+            | HDL-Batch-Installer | v3.7.0 |
+            | Mod repo | `${{ github.sha }}` |
+            | Build date | ${{ steps.meta.outputs.build_date }} |
 
             **Versão OPL:** ${{ env.OPL_VERSION }}
 
             ---
 
             Builds anteriores: https://github.com/${{ github.repository }}/releases
-          files: ${{ env.PKG_FILE }}
+          files: |
+            ${{ env.PS2_KIT }}
+            ${{ env.LINUX_TOOLS }}
           draft: false
-          prerelease: true   # Sempre pre-release (build de desenvolvimento)
-          make_latest: false # Não marcar como "Latest" no GitHub (evita confusão)
+          prerelease: true
+          make_latest: false
