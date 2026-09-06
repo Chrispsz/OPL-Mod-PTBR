@@ -9,7 +9,7 @@
 #   3. Se QUALQUER UM mudou → cria nova tag e dispara release.yml
 #   4. Se nada mudou → pula
 #
-# Requer o secret GH_PAT (já configurado) para poder criar tags.
+# Requer APENAS o GITHUB_TOKEN embutido (sem PAT, sem expiração).
 # =============================================================================
 name: Auto-Release Semanal
 
@@ -26,6 +26,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   check-and-release:
@@ -36,7 +37,6 @@ jobs:
       - name: Checkout mod repo
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
 
       - name: Get latest SHAs from upstream
@@ -103,7 +103,6 @@ jobs:
       - name: Update SHA files
         if: steps.decide.outputs.should_release == 'true'
         run: |
-          # Atualizar os arquivos de SHA
           echo "${{ steps.upstream.outputs.opl_sha }}" > upstream.sha
           echo "${{ steps.upstream.outputs.ule_sha }}" > ule.sha
 
@@ -138,6 +137,8 @@ jobs:
 
       - name: Create and push tag
         if: steps.decide.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           NEW_TAG="${{ steps.tag.outputs.name }}"
 
@@ -156,6 +157,11 @@ jobs:
           git tag -a "${NEW_TAG}" -m "Auto-release: ${REASON}"
           git push origin "${NEW_TAG}"
 
+          sleep 3
+          # Push de tag com GITHUB_TOKEN não dispara release.yml (on: push tags) —
+          # disparamos via workflow_dispatch (exceção permitida ao GITHUB_TOKEN).
+          gh workflow run release.yml --ref main -f tag="${NEW_TAG}"
+
           echo ""
           echo "✅ Tag ${NEW_TAG} criada e enviada!"
-          echo "   O workflow release.yml vai disparar automaticamente e criar a release."
+          echo "   release.yml disparado via workflow_dispatch — release saindo."
