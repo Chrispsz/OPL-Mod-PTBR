@@ -68,10 +68,10 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "build_date=$(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$GITHUB_OUTPUT"
 
-      - name: Clone upstream OPL (branch main)
+      - name: Clone upstream OPL (branch master — default real)
         run: |
           set -eu
-          git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
+          git clone --depth 1 -b master https://github.com/ps2homebrew/Open-PS2-Loader.git opl
           UPSTREAM_SHA=$(cd opl && git rev-parse HEAD)
           UPSTREAM_DATE=$(cd opl && git log -1 --format=%cd --date=format:'%Y-%m-%d')
           OPL_VERSION=$(cd opl && make oplversion 2>/dev/null || echo "unknown")

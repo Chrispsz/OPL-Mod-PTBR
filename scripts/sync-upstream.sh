@@ -17,8 +17,8 @@ TEMP_DIR="$(mktemp -d)"
 
 trap 'rm -rf "${TEMP_DIR}"' EXIT
 
-echo "==> SHA mais recente do upstream:"
-UPSTREAM_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/Open-PS2-Loader/commits/main \
+echo "==> SHA mais recente do upstream (branch master — default real):"
+UPSTREAM_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/Open-PS2-Loader/commits/master \
     | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'])")
 echo "    ${UPSTREAM_SHA:0:7}"
 
@@ -28,7 +28,7 @@ fi
 
 echo
 echo "==> Clonando upstream para teste..."
-git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git "${TEMP_DIR}/opl" 2>&1 | tail -1
+git clone --depth 1 -b master https://github.com/ps2homebrew/Open-PS2-Loader.git "${TEMP_DIR}/opl" 2>&1 | tail -1
 
 echo "==> Aplicando mods (validação rígida por âncoras)..."
 bash "${SCRIPT_DIR}/apply-mods.sh" "${TEMP_DIR}/opl" > /tmp/opl-apply-test.log 2>&1 || {

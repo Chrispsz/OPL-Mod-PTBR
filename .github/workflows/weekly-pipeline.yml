@@ -55,7 +55,9 @@ jobs:
         id: upstream
         run: |
           set -euo pipefail
-          OPL_SHA=$(curl -sf --retry 3 https://api.github.com/repos/ps2homebrew/Open-PS2-Loader/commits/main \
+          # ATENÇÃO: a branch de desenvolvimento do upstream OPL é 'master'
+          # (a branch 'main' está congelada desde 2025-02 e NÃO é a default).
+          OPL_SHA=$(curl -sf --retry 3 https://api.github.com/repos/ps2homebrew/Open-PS2-Loader/commits/master \
                     | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'])")
           ULE_SHA=$(curl -sf --retry 3 https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/master \
                     | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'])")

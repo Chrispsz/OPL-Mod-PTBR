@@ -50,9 +50,9 @@ jobs:
           echo "python3:    $(python3 --version)"
           python3 -c "import yaml; print('pyyaml:    OK')"
 
-      - name: Clone upstream OPL
+      - name: Clone upstream OPL (branch master — default real)
         run: |
-          git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
+          git clone --depth 1 -b master https://github.com/ps2homebrew/Open-PS2-Loader.git opl
           echo "UPSTREAM_SHA=$(cd opl && git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Apply mods (âncoras rígidas — falha se upstream mudou)
