@@ -79,9 +79,13 @@ jobs:
             exit 1
           fi
 
-          # PT-BR realmente embutido? lang_internal.c deve conter acentuação PT-BR.
-          grep -q $'\xc3\xa3' src/lang_internal.c \
-            || { echo "ERRO: PT-BR não embutido em lang_internal.c"; exit 1; }
+          # PT-BR realmente embutido? lang_internal.c usa escapes \u00XX.
+          # Inglês puro = 0 ocorrências; PT-BR real = 200+ (calibrado localmente).
+          PTBR_HITS=$(grep -oF -e 'u00e3' -e 'u00e7' -e 'u00ed' -e 'u00e9' -e 'u00f5' src/lang_internal.c | wc -l)
+          if [ "$PTBR_HITS" -lt 100 ]; then
+            echo "ERRO: PT-BR não embutido em lang_internal.c (${PTBR_HITS} hits)"
+            exit 1
+          fi
 
           echo "✅ ELF MIPS válido (${SIZE} bytes), PT-BR embutido confirmado"
 
