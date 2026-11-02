@@ -1,13 +1,19 @@
 # =============================================================================
-# build.yml — Build do OPL PT-BR Mod em cada push/PR
+# build.yml — Build do OPL PT-BR Mod em cada push/PR (e via Pipeline Semanal)
 #
 # Aciona em:
 #   - Push para main ou ptbr-mod
 #   - Pull request para main
+#   - workflow_dispatch (usado pelo weekly-pipeline.yml como validação)
 #
 # Output:
-#   - Artifact OPNPS2LD-<sha> contendo OPNPS2LD.ELF + .lng + .ttf + conf_opl.cfg
-#   - Disponível por 90 dias para download
+#   - Artifact OPNPS2LD-<sha>: OPNPS2LD.ELF + lang_Portuguese_BR.lng
+#     + font_Portuguese_BR.ttf + INFO.txt (90 dias)
+#
+# Pós-build, valida ANTES de publicar o artifact:
+#   - ELF MIPS válido (magic 7f 45 4c 46)
+#   - Tamanho plausível (2–8 MB)
+#   - PT-BR realmente embutido (lang_internal.c com caracteres acentuados)
 # =============================================================================
 name: Build OPL PT-BR Mod
 
@@ -17,6 +23,10 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   build:
@@ -30,49 +40,69 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Imagem ps2dev/ps2dev:latest já tem TUDO:
-          # - ps2sdk + gsKit + ps2sdk-ports + ps2eth + ps2client + ps2-packer
-          # Só precisamos das tools básicas que Alpine minimal não inclui
+          # ps2dev/ps2dev:latest já traz ps2sdk + gsKit + ports + ps2-packer.
+          # Alpine minimal não inclui as tools abaixo.
           apk add --no-cache python3 py3-yaml zip git bash make
 
       - name: Verify environment
         run: |
           echo "ps2-packer: $(which ps2-packer)"
           echo "ee-gcc:     $(which ee-gcc 2>/dev/null || which mips64r59002el-elf-gcc 2>/dev/null || echo 'NÃO ENCONTRADO')"
-          echo "gsKit.h:    $(find /usr/local/ps2dev -name gsKit.h 2>/dev/null | head -1)"
-          echo "PS2DEV=$PS2DEV"
-          echo "GSKIT=$GSKIT"
+          echo "python3:    $(python3 --version)"
+          python3 -c "import yaml; print('pyyaml:    OK')"
 
       - name: Clone upstream OPL
         run: |
           git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
-          echo "UPSTREAM_SHA=$(cd opl && git rev-parse HEAD)" >> $GITHUB_ENV
+          echo "UPSTREAM_SHA=$(cd opl && git rev-parse HEAD)" >> "$GITHUB_ENV"
 
-      - name: Apply mods
+      - name: Apply mods (âncoras rígidas — falha se upstream mudou)
         run: bash scripts/apply-mods.sh opl
 
       - name: Build OPL
         working-directory: opl
+        run: make -j"$(nproc)" NOT_PACKED=0 DEBUG=0 PADEMU=0
+
+      - name: Validate build output
+        working-directory: opl
         run: |
-          make -j"$(nproc)" NOT_PACKED=0 DEBUG=0 PADEMU=0
+          set -euo pipefail
+          test -f OPNPS2LD.ELF || { echo "ERRO: OPNPS2LD.ELF não gerado"; exit 1; }
+
+          head -c 4 OPNPS2LD.ELF | od -An -tx1 | grep -q "7f 45 4c 46" \
+            || { echo "ERRO: OPNPS2LD.ELF não é um ELF válido"; exit 1; }
+
+          SIZE=$(stat -c%s OPNPS2LD.ELF)
+          if [ "$SIZE" -lt 2000000 ] || [ "$SIZE" -gt 8000000 ]; then
+            echo "ERRO: tamanho do ELF suspeito (${SIZE} bytes; esperado 2–8 MB)"
+            exit 1
+          fi
+
+          # PT-BR realmente embutido? lang_internal.c deve conter acentuação PT-BR.
+          grep -q $'\xc3\xa3' src/lang_internal.c \
+            || { echo "ERRO: PT-BR não embutido em lang_internal.c"; exit 1; }
+
+          echo "✅ ELF MIPS válido (${SIZE} bytes), PT-BR embutido confirmado"
 
       - name: Prepare artifact
         run: |
+          set -euo pipefail
           mkdir -p artifact
           cp opl/OPNPS2LD.ELF artifact/
           cp opl/lng/lang_Portuguese_BR.lng artifact/ 2>/dev/null || true
           cp opl/lng_src/thirdparty/font_Portuguese_BR.ttf artifact/ 2>/dev/null || true
-          cp mods/conf_opl.cfg artifact/ 2>/dev/null || true
-          # Gerar arquivo INFO com metadados
-          cat > artifact/INFO.txt <<EOF
-          OPL PT-BR Mod — Build ${{ github.sha }}
-          ============================================
-          Upstream SHA: ${{ env.UPSTREAM_SHA }}
-          Mod SHA:      ${{ github.sha }}
-          Build date:   $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-          Versão OPL:   $(cd opl && make oplversion 2>/dev/null || echo 'unknown')
 
-          Perfil: Performance + USB-default + PT-BR único + IGR + VMC
+          OPL_VERSION=$(cd opl && make oplversion 2>/dev/null || echo 'unknown')
+          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          cat > artifact/INFO.txt <<EOF
+          OPL PT-BR Mod — Build ${GITHUB_SHA::7}
+          ============================================
+          Upstream SHA: ${UPSTREAM_SHA}
+          Mod SHA:      ${GITHUB_SHA}
+          Build date:   ${BUILD_DATE}
+          Versão OPL:   ${OPL_VERSION}
+
+          Perfil: Balanced-Optimized + USB-default + PT-BR embutido
           Sources ativas por default: USB (BDM)
           Sources desativadas (compiladas): HDD, ETH/SMB, APP
           Recursos desativados no build: PADEMU, GSM, IGS, ILINK, MX4SIO, RTL
@@ -80,8 +110,7 @@ jobs:
           Instalação:
             1. Copie OPNPS2LD.ELF para mc0:/OPL/ (via uLaunchELF, FTP, etc.)
             2. (Opcional) Copie lang_Portuguese_BR.lng e font_Portuguese_BR.ttf
-            3. (Opcional) Copie conf_opl.cfg para forçar as settings no primeiro boot
-            4. Boot via FreeMcBoot / FreeHDBoot / uLaunchELF
+            3. Boot via FreeMcBoot / FreeHDBoot / uLaunchELF
           EOF
 
       - name: Upload artifact

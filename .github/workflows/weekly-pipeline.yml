@@ -1,0 +1,218 @@
+# =============================================================================
+# weekly-pipeline.yml — Pipeline único de sync + release automática
+#
+# Substitui (e elimina o race de) os antigos sync-upstream.yml + auto-release.yml.
+# Roda todo domingo às 23:00 UTC (20:00 BRT) ou manualmente (com opção force).
+#
+# Fluxo (à prova de tag morta — NUNCA cria tag antes de validar a build):
+#   1. Compara SHA do upstream OPL (main) e uLaunchELF (master) com os gravados
+#      em upstream.sha / ule.sha
+#   2. Se nada mudou (e sem force): sai — nada a fazer
+#   3. Se mudou: dispara build.yml via workflow_dispatch e ESPERA o resultado
+#      (gh run watch). A build já valida: mods aplicam, ELF MIPS válido,
+#      PT-BR embutido.
+#   4. Build OK  -> grava os novos SHAs, commit/push, cria a próxima tag
+#                   v*-Beta-ptbr.N e dispara release.yml
+#   5. Build FALHOU -> cria/comenta issue 'upstream-sync' com o link do run
+#                      e encerra com erro (nenhuma tag é criada)
+#
+# Usa APENAS o GITHUB_TOKEN embutido (sem PAT, sem expiração).
+# =============================================================================
+name: Pipeline Semanal
+
+on:
+  schedule:
+    # Todo domingo 23:00 UTC = 20:00 horário de Brasília
+    - cron: '0 23 * * 0'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Forçar release mesmo sem mudanças no upstream (true/false)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+  issues: write
+  actions: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    if: github.repository != 'ps2homebrew/Open-PS2-Loader'
+
+    steps:
+      - name: Checkout mod repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get latest upstream SHAs
+        id: upstream
+        run: |
+          set -euo pipefail
+          OPL_SHA=$(curl -sf --retry 3 https://api.github.com/repos/ps2homebrew/Open-PS2-Loader/commits/main \
+                    | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'])")
+          ULE_SHA=$(curl -sf --retry 3 https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/master \
+                    | python3 -c "import json,sys;print(json.load(sys.stdin)['sha'])")
+          echo "opl_sha=${OPL_SHA}" >> "$GITHUB_OUTPUT"
+          echo "ule_sha=${ULE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "==> Upstream atual:  OPL ${OPL_SHA:0:7} | ULE ${ULE_SHA:0:7}"
+
+      - name: Get last recorded SHAs
+        id: last
+        run: |
+          OPL_LAST=$(cat upstream.sha 2>/dev/null || echo "")
+          ULE_LAST=$(cat ule.sha 2>/dev/null || echo "")
+          echo "opl_last=${OPL_LAST}" >> "$GITHUB_OUTPUT"
+          echo "ule_last=${ULE_LAST}" >> "$GITHUB_OUTPUT"
+          echo "==> Registrado:      OPL ${OPL_LAST:0:7} | ULE ${ULE_LAST:0:7}"
+
+      - name: Decide
+        id: decide
+        run: |
+          set -euo pipefail
+          FORCE="${{ github.event.inputs.force || 'false' }}"
+          OPL_CHANGED=$([[ "${{ steps.upstream.outputs.opl_sha }}" != "${{ steps.last.outputs.opl_last }}" ]] && echo true || echo false)
+          ULE_CHANGED=$([[ "${{ steps.upstream.outputs.ule_sha }}" != "${{ steps.last.outputs.ule_last }}" ]] && echo true || echo false)
+
+          if [ "${OPL_CHANGED}" = true ] || [ "${ULE_CHANGED}" = true ] || [ "${FORCE}" = true ]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "==> Decisão: RODAR PIPELINE (OPL mudou=${OPL_CHANGED}, ULE mudou=${ULE_CHANGED}, force=${FORCE})"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "==> Decisão: nada mudou — pipeline encerrado sem trabalho."
+          fi
+          echo "opl_changed=${OPL_CHANGED}" >> "$GITHUB_OUTPUT"
+          echo "ule_changed=${ULE_CHANGED}" >> "$GITHUB_OUTPUT"
+
+      # ---------------------------------------------------------------------
+      # VALIDAÇÃO: build real ANTES de qualquer tag. Reutiliza o build.yml
+      # (fonte única de verdade do processo de build) e espera o resultado.
+      # ---------------------------------------------------------------------
+      - name: Validate build (dispatch build.yml and wait)
+        if: steps.decide.outputs.should_release == 'true'
+        id: validate
+        timeout-minutes: 75
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export T0=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          echo "==> Disparando build.yml para validar (SHA ${{ github.sha }})..."
+          gh workflow run build.yml --ref main
+
+          # Localiza o run do build.yml recém-criado (createdAt >= T0),
+          # com retry — o run pode levar alguns segundos para aparecer.
+          RUN_ID=""
+          for i in 1 2 3 4 5 6; do
+            sleep 10
+            RUN_ID=$(gh run list --workflow=build.yml --json databaseId,createdAt \
+              --limit 10 | T0="$T0" python3 -c "
+            import json, sys, os
+            t0 = os.environ['T0']
+            runs = json.load(sys.stdin)
+            fresh = [r for r in runs if r['createdAt'] >= t0]
+            print(fresh[0]['databaseId'] if fresh else '')")
+            [ -n "${RUN_ID}" ] && break
+            echo "   run ainda não visível (tentativa ${i}/6)..."
+          done
+
+          if [ -z "${RUN_ID}" ]; then
+            echo "ERRO: run do build.yml não localizado após dispatch."
+            exit 1
+          fi
+          echo "==> Aguardando run ${RUN_ID} (gh run watch)..."
+          gh run watch "${RUN_ID}" --exit-status --interval 30
+          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "✅ Build de validação PASSOU: https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}"
+
+      - name: Report broken upstream (issue + fail)
+        if: steps.decide.outputs.should_release == 'true' && steps.validate.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh label create upstream-sync --color e99695 --force || true
+          BODY=$(cat <<EOF
+          ⚠️ **Sync upstream bloqueado — a build de validação falhou.**
+
+          Upstream OPL: \`${{ steps.upstream.outputs.opl_sha }}\`
+          Upstream uLaunchELF: \`${{ steps.upstream.outputs.ule_sha }}\`
+          Run da falha: https://github.com/${{ github.repository }}/actions/runs/${{ steps.validate.outputs.run_id }}
+
+          Os mods NÃO compilam contra o upstream atual. Nenhuma tag/release foi criada.
+          Corrija \`mods/apply_mods.py\` (âncoras) ou o código do mod e rode o
+          Pipeline Semanal de novo (com force se quiser release imediata).
+          EOF
+          )
+          EXISTING=$(gh issue list --label upstream-sync --state open --json number --limit 1 \
+            | python3 -c "import json,sys;l=json.load(sys.stdin);print(l[0]['number'] if l else '')")
+          if [ -n "${EXISTING}" ]; then
+            gh issue comment "${EXISTING}" --body "${BODY}"
+          else
+            gh issue create --title "⚠️ Sync upstream falhou — intervenção manual necessária" \
+              --label upstream-sync --body "${BODY}"
+          fi
+          echo "Issue criada/atualizada. Encerrando com erro para sinalizar no badge."
+          exit 1
+
+      - name: Record new SHAs
+        if: steps.decide.outputs.should_release == 'true'
+        run: |
+          set -euo pipefail
+          echo "${{ steps.upstream.outputs.opl_sha }}" > upstream.sha
+          echo "${{ steps.upstream.outputs.ule_sha }}" > ule.sha
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add upstream.sha ule.sha
+          git commit -m "chore: registrar SHAs upstream (OPL ${{ steps.upstream.outputs.opl_sha }}, ULE ${{ steps.upstream.outputs.ule_sha }})" \
+            || echo "nada pra commitar (SHAs já registrados)"
+          git push
+
+      - name: Create and push tag
+        if: steps.decide.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          LAST_TAG=$(git tag -l "v*-Beta-ptbr.*" | sort -V | tail -1)
+          echo "Última tag: ${LAST_TAG}"
+
+          if [ -z "${LAST_TAG}" ]; then
+            NEW_TAG="v1.2.0-Beta-ptbr.1"
+          else
+            NUM=$(echo "${LAST_TAG}" | grep -oE 'ptbr\.[0-9]+$' | grep -oE '[0-9]+$')
+            NEW_TAG="$(echo "${LAST_TAG}" | sed -E 's/ptbr\.[0-9]+$/ptbr./')$((NUM + 1))"
+          fi
+          echo "Nova tag: ${NEW_TAG}"
+
+          # Idempotente: se a tag já existe remota (rerun após falha parcial), reutiliza.
+          if git ls-remote --tags origin "refs/tags/${NEW_TAG}" | grep -q "${NEW_TAG}"; then
+            echo "Tag ${NEW_TAG} já existe — reutilizando."
+          else
+            REASON=""
+            [ "${{ steps.decide.outputs.opl_changed }}" = true ] && REASON="${REASON} OPL upstream atualizado (${{ steps.upstream.outputs.opl_sha }});"
+            [ "${{ steps.decide.outputs.ule_changed }}" = true ] && REASON="${REASON} uLaunchELF atualizado (${{ steps.upstream.outputs.ule_sha }});"
+            [ -z "${REASON}" ] && REASON=" release manual forçada;"
+
+            git tag -a "${NEW_TAG}" -m "Auto-release:${REASON}"
+            git push origin "${NEW_TAG}"
+          fi
+          echo "tag=${NEW_TAG}" >> "$GITHUB_ENV"
+
+      - name: Dispatch release
+        if: steps.decide.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Push de tag com GITHUB_TOKEN não dispara release.yml (on: push tags);
+          # workflow_dispatch é a exceção documentada que o GITHUB_TOKEN pode acionar.
+          gh workflow run release.yml --ref main -f tag="${{ env.tag }}"
+          sleep 3
+          echo "✅ Tag ${{ env.tag }} pronta e release.yml disparado — release saindo."

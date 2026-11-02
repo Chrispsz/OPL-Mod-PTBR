@@ -1,9 +1,10 @@
 # =============================================================================
 # release.yml — Cria um Release do GitHub quando uma tag v* é empurrada
+# (ou disparado manualmente / pelo weekly-pipeline.yml com -f tag=<nome>)
 #
 # Uso:
-#   git tag v1.2.0-Beta-ptbr.6
-#   git push origin v1.2.0-Beta-ptbr.6
+#   git tag v1.2.0-Beta-ptbr.7
+#   git push origin v1.2.0-Beta-ptbr.7
 #
 # O workflow cria DOIS assets no release:
 #
@@ -19,6 +20,7 @@
 #    - OPL-PC-Tools (GUI Qt para gerenciar jogos OPL)
 #    - HDL-Batch-Installer (GUI Java para instalar jogos no HDD PS2)
 #
+# A release SÓ é criada se a build do OPL passar em todas as validações.
 # TODAS as releases são marcadas como pre-release (build de desenvolvimento).
 # =============================================================================
 name: Release OPL PT-BR Mod
@@ -30,12 +32,16 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag name (e.g. v1.2.0-Beta-ptbr.6)'
+        description: 'Tag name (e.g. v1.2.0-Beta-ptbr.7)'
         required: true
-        default: 'v1.2.0-Beta-ptbr.6'
+        default: 'v1.2.0-Beta-ptbr.7'
 
 permissions:
   contents: write
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   release:
@@ -49,31 +55,34 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apk add --no-cache python3 py3-yaml zip git bash make curl p7zip tar
+          set -euo pipefail
+          apk add --no-cache python3 py3-yaml zip git bash make curl p7zip tar unzip
 
       - name: Capture build metadata
         id: meta
         run: |
+          set -euo pipefail
           if [ -n "${{ github.event.inputs.tag }}" ]; then
             TAG="${{ github.event.inputs.tag }}"
           else
             TAG="${GITHUB_REF#refs/tags/}"
           fi
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$GITHUB_OUTPUT"
 
       - name: Clone upstream OPL (branch main)
         run: |
+          set -euo pipefail
           git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
           UPSTREAM_SHA=$(cd opl && git rev-parse HEAD)
-          UPSTREAM_SHORT="${UPSTREAM_SHA:0:7}"
           UPSTREAM_DATE=$(cd opl && git log -1 --format=%cd --date=format:'%Y-%m-%d')
           OPL_VERSION=$(cd opl && make oplversion 2>/dev/null || echo "unknown")
-          echo "UPSTREAM_SHA=${UPSTREAM_SHA}" >> $GITHUB_ENV
-          echo "UPSTREAM_SHORT=${UPSTREAM_SHORT}" >> $GITHUB_ENV
-          echo "UPSTREAM_DATE=${UPSTREAM_DATE}" >> $GITHUB_ENV
-          echo "OPL_VERSION=${OPL_VERSION}" >> $GITHUB_ENV
+          {
+            echo "UPSTREAM_SHA=${UPSTREAM_SHA}"
+            echo "UPSTREAM_SHORT=${UPSTREAM_SHA:0:7}"
+            echo "UPSTREAM_DATE=${UPSTREAM_DATE}"
+            echo "OPL_VERSION=${OPL_VERSION}"
+          } >> "$GITHUB_ENV"
 
       - name: Apply mods
         run: bash scripts/apply-mods.sh opl
@@ -83,25 +92,27 @@ jobs:
         run: make -j"$(nproc)" NOT_PACKED=0 DEBUG=0 PADEMU=0
 
       - name: Verify OPL ELF
+        working-directory: opl
         run: |
-          ls -lh opl/OPNPS2LD.ELF
-          head -c 4 opl/OPNPS2LD.ELF | od -An -tx1 | grep -q "7f 45 4c 46" || {
-            echo "ERRO: OPNPS2LD.ELF não é um ELF válido!"
-            exit 1
-          }
-          echo "✅ OPNPS2LD.ELF é um ELF MIPS válido"
+          set -euo pipefail
+          test -f OPNPS2LD.ELF || { echo "ERRO: OPNPS2LD.ELF não gerado"; exit 1; }
+          head -c 4 OPNPS2LD.ELF | od -An -tx1 | grep -q "7f 45 4c 46" \
+            || { echo "ERRO: OPNPS2LD.ELF não é um ELF válido!"; exit 1; }
+          grep -q $'\xc3\xa3' src/lang_internal.c \
+            || { echo "ERRO: PT-BR não embutido em lang_internal.c"; exit 1; }
+          ls -lh OPNPS2LD.ELF
+          echo "✅ OPNPS2LD.ELF é um ELF MIPS válido com PT-BR embutido"
 
       - name: Download latest uLaunchELF
         id: ule
         run: |
+          set -euo pipefail
           echo "==> Baixando uLaunchELF (BOOT.ELF) da tag latest..."
           curl -fL --retry 3 -o BOOT.ELF \
             https://github.com/ps2homebrew/wLaunchELF/releases/download/latest/BOOT.ELF
 
-          head -c 4 BOOT.ELF | od -An -tx1 | grep -q "7f 45 4c 46" || {
-            echo "ERRO: BOOT.ELF não é um ELF válido!"
-            exit 1
-          }
+          head -c 4 BOOT.ELF | od -An -tx1 | grep -q "7f 45 4c 46" \
+            || { echo "ERRO: BOOT.ELF não é um ELF válido!"; exit 1; }
           echo "✅ BOOT.ELF (uLaunchELF) é um ELF MIPS válido"
 
           ULE_SHA=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/master \
@@ -109,29 +120,30 @@ jobs:
           if [ -z "${ULE_SHA}" ]; then
             ULE_SHA=$(git ls-remote https://github.com/ps2homebrew/wLaunchELF.git refs/tags/latest | cut -f1)
           fi
-          ULE_SHORT="${ULE_SHA:0:7}"
           ULE_DATE=$(curl -sf https://api.github.com/repos/ps2homebrew/wLaunchELF/commits/master \
                      | python3 -c "import json,sys;print(json.load(sys.stdin)['commit']['author']['date'][:10])" 2>/dev/null || echo "unknown")
-          echo "ule_sha=${ULE_SHA}" >> $GITHUB_OUTPUT
-          echo "ule_short=${ULE_SHORT}" >> $GITHUB_OUTPUT
-          echo "ule_date=${ULE_DATE}" >> $GITHUB_OUTPUT
+          {
+            echo "ule_sha=${ULE_SHA}"
+            echo "ule_short=${ULE_SHA:0:7}"
+            echo "ule_date=${ULE_DATE}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Download Memory Card Annihilator v2.2.0
         run: |
+          set -euo pipefail
           echo "==> Baixando Memory Card Annihilator v2.2.0..."
           curl -fL --retry 3 -o /tmp/mca.zip \
             https://github.com/ffgriever-pl/Memory-Card-Annihilator/releases/download/v2.2.0/MemoryCardAnihilator_v2.2.0.zip
           unzip -j /tmp/mca.zip "mca_legacy/mca-packed.elf" -d /tmp/
           cp /tmp/mca-packed.elf MCA.ELF
+          head -c 4 MCA.ELF | od -An -tx1 | grep -q "7f 45 4c 46" \
+            || { echo "ERRO: MCA.ELF não é um ELF válido!"; exit 1; }
           ls -lh MCA.ELF
-          head -c 4 MCA.ELF | od -An -tx1 | grep -q "7f 45 4c 46" || {
-            echo "ERRO: MCA.ELF não é um ELF válido!"
-            exit 1
-          }
           echo "✅ MCA.ELF (Memory Card Annihilator) é um ELF MIPS válido"
 
       - name: Download HDLGameInstaller v0.821
         run: |
+          set -euo pipefail
           echo "==> Baixando HDLGameInstaller v0.821..."
           curl -fL --retry 3 -o /tmp/hdl.7z \
             https://github.com/ps2homebrew/HDLGameInstaller/releases/download/v0.821/181208.HDLGameInstaller-0821-bin.7z
@@ -143,27 +155,25 @@ jobs:
             exit 1
           fi
           cp "${HDL_ELF}" HDLGameInstaller.ELF
+          head -c 4 HDLGameInstaller.ELF | od -An -tx1 | grep -q "7f 45 4c 46" \
+            || { echo "ERRO: HDLGameInstaller.ELF não é um ELF válido!"; exit 1; }
           ls -lh HDLGameInstaller.ELF
-          head -c 4 HDLGameInstaller.ELF | od -An -tx1 | grep -q "7f 45 4c 46" || {
-            echo "ERRO: HDLGameInstaller.ELF não é um ELF válido!"
-            exit 1
-          }
           echo "✅ HDLGameInstaller.ELF é um ELF MIPS válido"
 
       - name: Download PS2 Memory Card Formatter v1.2
         run: |
+          set -euo pipefail
           echo "==> Baixando PS2 Memory Card Formatter v1.2..."
           curl -fL --retry 3 -o MFU.ELF \
             https://github.com/Zero1UP/PS2-Memory-Card-Formatter/releases/download/v1.2/MFU-Packed.elf
+          head -c 4 MFU.ELF | od -An -tx1 | grep -q "7f 45 4c 46" \
+            || { echo "ERRO: MFU.ELF não é um ELF válido!"; exit 1; }
           ls -lh MFU.ELF
-          head -c 4 MFU.ELF | od -An -tx1 | grep -q "7f 45 4c 46" || {
-            echo "ERRO: MFU.ELF não é um ELF válido!"
-            exit 1
-          }
           echo "✅ MFU.ELF (Memory Formatter Utility) é um ELF MIPS válido"
 
       - name: Create PS2 kit ZIP (all ELFs)
         run: |
+          set -euo pipefail
           TAG="${{ steps.meta.outputs.tag }}"
           PKG_DIR="OPL-PTBR-Mod-Kit-${TAG}"
           mkdir -p "${PKG_DIR}"
@@ -179,10 +189,11 @@ jobs:
 
           zip -9 -X -r "OPL-PTBR-Mod-Kit-${TAG}.zip" "${PKG_DIR}/"
           ls -lh "OPL-PTBR-Mod-Kit-${TAG}.zip"
-          echo "PS2_KIT=OPL-PTBR-Mod-Kit-${TAG}.zip" >> $GITHUB_ENV
+          echo "PS2_KIT=OPL-PTBR-Mod-Kit-${TAG}.zip" >> "$GITHUB_ENV"
 
       - name: Download Linux tools
         run: |
+          set -euo pipefail
           mkdir -p linux-tools
 
           echo "==> 1/3: ps2client v1.3.0..."
@@ -190,7 +201,7 @@ jobs:
             https://github.com/ps2dev/ps2client/releases/download/v1.3.0/ps2client-211df54b-ubuntu-latest.tar.gz
           mkdir -p linux-tools/ps2client
           tar xzf /tmp/ps2client.tar.gz -C linux-tools/ps2client
-          ls -la linux-tools/ps2client/
+          ls linux-tools/ps2client/
 
           echo ""
           echo "==> 2/3: OPL-PC-Tools v3.1..."
@@ -216,7 +227,6 @@ jobs:
           Comandos úteis:
             ps2client -h <ip-do-ps2> execee host:OPNPS2LD.ELF
             ps2client -h <ip-do-ps2> list
-            ps2client -h <ip-do-ps2> putty
 
           ## OPL-PC-Tools v3.1
           GUI Qt para gerenciar jogos OPL no PC.
@@ -226,17 +236,17 @@ jobs:
 
           ## HDL-Batch-Installer v3.7.0
           GUI Java para instalar jogos no HDD interno do PS2 Fat.
-          Permite instalar em lote, extrair jogos, formatar HDD APA.
           Precisa de Java 8+: sudo pacman -S jre-openjdk
           Depois: java -jar HDLBInst.jar
           EOF
 
       - name: Create Linux tools tarball
         run: |
+          set -euo pipefail
           TAG="${{ steps.meta.outputs.tag }}"
           tar -czf "OPL-PTBR-Mod-Linux-Tools-${TAG}.tar.gz" linux-tools/
           ls -lh "OPL-PTBR-Mod-Linux-Tools-${TAG}.tar.gz"
-          echo "LINUX_TOOLS=OPL-PTBR-Mod-Linux-Tools-${TAG}.tar.gz" >> $GITHUB_ENV
+          echo "LINUX_TOOLS=OPL-PTBR-Mod-Linux-Tools-${TAG}.tar.gz" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release (always pre-release)
         uses: softprops/action-gh-release@v2
@@ -277,7 +287,6 @@ jobs:
 
             ## 🚀 Instalação rápida
 
-            ### OPL + ferramentas PS2
             1. Descompacte o ZIP `OPL-PTBR-Mod-Kit-*.zip`
             2. Copie os ELFs para um pendrive (FAT32 ou exFAT)
             3. No PS2 com FreeMcBoot, abra o uLaunchELF (aparece no menu FMCB)

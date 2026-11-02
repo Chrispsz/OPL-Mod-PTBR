@@ -89,6 +89,11 @@ def main():
     print(f"    {substituted}/{total} strings substituídas por PT-BR")
     if untranslated:
         print(f"    {untranslated} strings mantidas em inglês (sem tradução disponível)")
+    if total and substituted == 0:
+        print("ERRO: 0 strings substituídas — lng_src/Portuguese_BR.yml está "
+              "incompatível com lng_tmpl/_base.yml (upstream mudou os labels?).",
+              file=sys.stderr)
+        return 1
     return 0
 
 

@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # ============================================================================
-# apply-mods.sh — Aplica os mods PT-BR + Performance no clone upstream do OPL
+# apply-mods.sh — Aplica os mods PT-BR + Balanced-Optimized num clone do OPL
 #
 # Uso:
 #   ./scripts/apply-mods.sh [diretório-do-opl]
 #
-# Se o diretório não for passado, usa "opl/" por padrão.
+# Pipeline interno (todas as etapas falham RUIDOSAMENTE em caso de problema):
+#   1. mods/apply_mods.py   — edições por âncoras de conteúdo (Makefile + opl.c)
+#   2. download_lng.sh      — fontes de tradução do OPL-lang (se ausentes)
+#   3. merge_ptbr.py        — mescla PT-BR no _base.yml -> _base_ptbr.yml
 # ============================================================================
 set -euo pipefail
 
@@ -13,58 +16,40 @@ TARGET="${1:-opl}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MODS_DIR="$(cd "${SCRIPT_DIR}/../mods" && pwd)"
 
-if [ ! -d "${TARGET}" ]; then
-    echo "ERRO: diretório '${TARGET}' não existe." >&2
+if [ ! -f "${TARGET}/Makefile" ] || [ ! -f "${TARGET}/src/opl.c" ]; then
+    echo "ERRO: '${TARGET}' não parece ser um clone do OPL." >&2
     echo "       Clone o upstream primeiro:" >&2
     echo "       git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git ${TARGET}" >&2
     exit 1
 fi
 
-if [ ! -f "${TARGET}/Makefile" ]; then
-    echo "ERRO: '${TARGET}' não parece ser um clone do OPL (sem Makefile)." >&2
-    exit 1
-fi
-
-cd "${TARGET}"
-
 echo "==> Aplicando mods em ${TARGET}..."
 
-# 1. Aplicar patches (.patch)
-for patch in "${MODS_DIR}"/*.patch; do
-    patch_name="$(basename "${patch}")"
-    echo "   - Aplicando ${patch_name}..."
-    if git apply --check "${patch}" 2>/dev/null; then
-        git apply "${patch}"
-    elif patch -p1 --dry-run < "${patch}" >/dev/null 2>&1; then
-        patch -p1 < "${patch}"
-    else
-        echo "ERRO: não foi possível aplicar ${patch_name}." >&2
-        echo "       Provável conflito com nova versão do upstream." >&2
-        echo "       Edite o patch manualmente em mods/${patch_name}" >&2
-        exit 1
-    fi
-done
+echo "   [1/3] Edições por âncoras (Makefile + src/opl.c)..."
+python3 "${MODS_DIR}/apply_mods.py" "${TARGET}"
 
-# 2. Copiar merge_ptbr.py para a raiz do OPL
-echo "   - Copiando merge_ptbr.py..."
-cp "${MODS_DIR}/merge_ptbr.py" .
-chmod +x merge_ptbr.py
+echo "   [2/3] Copiando merge_ptbr.py..."
+cp "${MODS_DIR}/merge_ptbr.py" "${TARGET}/merge_ptbr.py"
+chmod +x "${TARGET}/merge_ptbr.py"
 
-# 3. Baixar fontes de tradução (se ainda não baixadas)
-if [ ! -d "lng_src" ]; then
-    echo "   - Baixando fontes de tradução (lng_src)..."
-    bash download_lng.sh
+if [ ! -d "${TARGET}/lng_src" ]; then
+    echo "   [2/3] Baixando fontes de tradução (lng_src)..."
+    (cd "${TARGET}" && bash download_lng.sh)
 fi
 
-# 4. Baixar lwNBD (opcional, pode falhar sem rede)
-if [ ! -d "thirdparty/lwNBD" ] && [ -f download_lwNBD.sh ]; then
-    echo "   - Baixando lwNBD (opcional)..."
-    bash download_lwNBD.sh || echo "     (lwNBD falhou — build vai continuar sem ele)"
+# lwNBD é opcional: o build continua sem ele.
+if [ ! -d "${TARGET}/thirdparty/lwNBD" ] && [ -f "${TARGET}/download_lwNBD.sh" ]; then
+    echo "   [opcional] Baixando lwNBD..."
+    (cd "${TARGET}" && bash download_lwNBD.sh) || echo "     (lwNBD falhou — build continua sem ele)"
 fi
 
-# 5. Gerar _base_ptbr.yml (mescla PT-BR no _base.yml)
-echo "   - Gerando lng_tmpl/_base_ptbr.yml..."
-python3 merge_ptbr.py
+echo "   [3/3] Gerando lng_tmpl/_base_ptbr.yml..."
+(cd "${TARGET}" && python3 merge_ptbr.py)
+
+if [ ! -f "${TARGET}/lng_tmpl/_base_ptbr.yml" ]; then
+    echo "ERRO: _base_ptbr.yml não foi gerado." >&2
+    exit 1
+fi
 
 echo
 echo "===================================================="
@@ -74,6 +59,3 @@ echo
 echo "Para compilar:"
 echo "  cd ${TARGET}"
 echo "  make -j\$(nproc) NOT_PACKED=0 DEBUG=0 PADEMU=0"
-echo
-echo "Para gerar o pacote de release:"
-echo "  make release NOT_PACKED=0 DEBUG=0 PADEMU=0"

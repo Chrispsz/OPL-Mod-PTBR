@@ -2,87 +2,76 @@
 
 [![Build](https://github.com/Chrispsz/OPL-Mod-PTBR/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/Chrispsz/OPL-Mod-PTBR/actions/workflows/build.yml)
 [![Release](https://github.com/Chrispsz/OPL-Mod-PTBR/actions/workflows/release.yml/badge.svg)](https://github.com/Chrispsz/OPL-Mod-PTBR/releases)
-[![Sync Upstream](https://github.com/Chrispsz/OPL-Mod-PTBR/actions/workflows/sync-upstream.yml/badge.svg)](https://github.com/Chrispsz/OPL-Mod-PTBR/actions/workflows/sync-upstream.yml)
-
-> **Substitua `Chrispsz` pelo seu usuário GitHub em todo este README depois de criar o repo.**
+[![Pipeline Semanal](https://github.com/Chrispsz/OPL-Mod-PTBR/actions/workflows/weekly-pipeline.yml/badge.svg)](https://github.com/Chrispsz/OPL-Mod-PTBR/actions/workflows/weekly-pipeline.yml)
 
 Build customizada do [Open PS2 Loader (OPL)](https://github.com/ps2homebrew/Open-PS2-Loader) com:
 
 - 🇧🇷 **PT-BR embutido no ELF** — idioma padrão sem precisar de `.lng` externo
-- 🎮 **Perfil Performance** — caches grandes, write on, art on (capas), SFX on, notificações on
+- ⚖️ **Perfil Balanced-Optimized** — caches no default oficial (melhor p/ ZSO), UX melhorada
 - 🔌 **USB-default** — Universal, funciona em qualquer PS2 (Fat ou Slim)
 - ⚡ **IGR + VMC** ativos por padrão
-- 🪶 **Build enxuta** — sem PADEMU, GSM, IGS, ILINK, MX4SIO, RTL (ELF ~10% menor)
-- 🤖 **CI/CD completo** — build automático em push, release em tag, sync semanal com upstream
+- 🪶 **Build enxuta** — sem PADEMU, GSM, IGS, ILINK, MX4SIO, RTL (ELF menor)
+- 🤖 **CI/CD à prova de falhas** — build validada antes de qualquer release, sync semanal automático
 
 ## O que mudou vs OPL oficial
 
 | Aspecto | OPL Oficial | Este Mod |
 |---------|-------------|----------|
 | Idioma interno | Inglês | **PT-BR embutido no ELF** |
-| Idiomas `.lng` gerados | 27 idiomas | Apenas `Portuguese_BR.lng` |
+| Idiomas `.lng` gerados | 29 idiomas | Apenas `Portuguese_BR.lng` |
 | PADEMU | Compilado | **Removido do build** (~120KB economizado) |
 | USB (BDM) | Desativado por default | **AUTO no boot** |
 | HDD interno | Desativado por default | Desativado (reativável via Settings) |
 | ETH/SMB | Desativado por default | Desativado (reativável via Settings) |
 | Device default | APP_MODE | **BDM_MODE** (USB) |
-| Cache CDVD USB | 16 | **32** |
-| Cache CDVD HDD | 8 | **16** |
+| Caches CDVD | 16 / 8 / 16 | Oficiais (16 / 8 / 16 — melhores p/ ZSO) |
 | gEnableWrite | 0 | **1** |
 | gAutoRefresh | 0 | **1** |
+| gHDDGameListCache | 0 | **1** |
 | gEnableArt (capas) | 0 | **1** |
 | gEnableNotifications | 0 | **1** |
 | gWideScreen | 0 | **1** |
 | gEnableSFX | 0 | **1** (sons de menu) |
-| gScrollSpeed | 1 | **2** (rápida) |
+| gEnableBootSND | 0 | **1** |
 | gRememberLastPlayed | 0 | **1** |
+| gScrollSpeed | 1 | 1 (oficial) |
 | IGR | Compilado (default ON per-game) | Mantido (combo L1+R1+L2+R2+Start+Select) |
-| GSM / IGS | Desativado | **Não compilados** (economiza ~180KB) |
+| GSM / IGS | Desativados | **Não compilados** (economiza ~180KB) |
 | RTL | Compilado | **Não compilado** (~20KB economizado) |
-
-**Tamanho do ELF estimado:** ~3.2 MB (vs ~4.0 MB do OPL oficial com tudo).
 
 ## 🚀 Como usar (download do ELF pronto)
 
 Se você só quer o ELF compilado, sem compilar nada:
 
 1. Vá em **[Releases](../../releases)**
-2. Baixe o ZIP mais recente
-3. Descompacte
-4. Copie para o cartão de memória do PS2:
+2. Baixe o ZIP do kit mais recente
+3. Descompacte e copie para o cartão de memória do PS2:
    - `mc0:/OPL/OPNPS2LD.ELF` (obrigatório)
-   - `mc0:/OPL/lang_Portuguese_BR.lng` (opcional)
-   - `mc0:/OPL/font_Portuguese_BR.ttf` (opcional)
-   - `mc0:/OPL/conf_opl.cfg` (opcional — força settings no primeiro boot)
-5. Inicie via **FreeMcBoot**, **FreeHDBoot** ou **uLaunchELF**
+   - `mc0:/OPL/lang_Portuguese_BR.lng` (opcional — já tem PT-BR embutido)
+4. Inicie via **FreeMcBoot**, **FreeHDBoot** ou **uLaunchELF**
+
+O kit de release também traz `BOOT.ELF` (uLaunchELF), `MCA.ELF`, `HDLGameInstaller.ELF` e `MFU.ELF` — utilitários prontos para `mc0:/BOOT/` e `mc0:/APPS/`.
 
 ## 🛠️ Como compilar localmente
 
-### Pré-requisitos
-
-- Docker (recomendado) **OU** Linux com PS2SDK instalado
-- Git
-
-### Opção A — Usando Docker (mais simples)
+### Opção A — Docker (mais simples)
 
 ```bash
-# Clonar este repo
 git clone https://github.com/Chrispsz/OPL-Mod-PTBR.git
 cd OPL-Mod-PTBR
 
-# Build em container Docker
-docker run --rm -v "$PWD:/work" -w /work ps2dev/ps2sdk:latest bash -c '
+docker run --rm -v "$PWD:/work" -w /work ps2dev/ps2dev:latest bash -c '
+  apk add --no-cache python3 py3-yaml git bash make >/dev/null
   git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
   bash scripts/apply-mods.sh opl
   cd opl && make -j$(nproc) NOT_PACKED=0 DEBUG=0 PADEMU=0
 '
-
-# ELF estará em opl/OPNPS2LD.ELF
+# ELF em opl/OPNPS2LD.ELF
 ```
 
 ### Opção B — Linux nativo
 
-Se você já tem PS2SDK + gsKit instalados:
+Se você já tem PS2SDK + gsKit instalados ([ps2dev/ps2dev](https://github.com/ps2dev/ps2dev)):
 
 ```bash
 git clone https://github.com/Chrispsz/OPL-Mod-PTBR.git
@@ -92,198 +81,129 @@ bash scripts/apply-mods.sh opl
 cd opl && make -j$(nproc) NOT_PACKED=0 DEBUG=0 PADEMU=0
 ```
 
-Se não tem PS2SDK, instale com [ps2dev/ps2dev](https://github.com/ps2dev/ps2dev).
-
 ## 🤖 Como o CI/CD funciona
 
-Este repo tem 3 workflows em `.github/workflows/`:
+3 workflows em `.github/workflows/`, todos só com o `GITHUB_TOKEN` embutido
+(sem PAT, sem secrets para configurar):
 
-### `build.yml` — Build em cada push
+### `build.yml` — Build validada em cada push/PR
 
-- Aciona em push para `main` ou `ptbr-mod`, e em PRs
 - Compila o OPL com os mods aplicados
-- Faz upload do ELF + `.lng` + `.ttf` + `conf_opl.cfg` como artifact (90 dias)
-- Acessível na aba **Actions** > workflow run > Artifacts
+- **Valida antes de publicar**: ELF MIPS válido (magic + tamanho 2–8 MB) e
+  PT-BR realmente embutido (`lang_internal.c` com acentuação)
+- Publica artifact `OPNPS2LD-<sha>` (90 dias) na aba Actions
 
 ### `release.yml` — Release em cada tag
 
-- Aciona quando você faz `git push origin v1.2.0-ptbr.1`
-- Compila o OPL
-- Cria um Release público no GitHub com:
-  - ZIP contendo ELF + `.lng` + `.ttf` + `conf_opl.cfg` + `INFO.txt`
-  - Notas de release automáticas com a configuração do build
+- Aciona em `git push origin v1.2.0-Beta-ptbr.N` (ou via Pipeline Semanal)
+- Compila, valida e cria a Release com 2 assets:
+  - **Kit PS2** (ZIP): `OPNPS2LD.ELF` + `BOOT.ELF` + `MCA.ELF` + `HDLGameInstaller.ELF` + `MFU.ELF`
+  - **Ferramentas Linux** (tar.gz): `ps2client` + `OPL-PC-Tools` + `HDL-Batch-Installer`
+- Se a build falhar, **nenhuma release é criada**
 
-Para criar um novo release:
+### `weekly-pipeline.yml` — Sync + release semanal automática
 
-```bash
-git tag v1.2.0-ptbr.1
-git push origin v1.2.0-ptbr.1
-# O workflow cria o release automaticamente em ~10 min
-```
+- Roda todo domingo às 23:00 UTC (20:00 BRT)
+- Compara SHAs do upstream (OPL + uLaunchELF) com os gravados em `upstream.sha`/`ule.sha`
+- Se mudou: **dispara e ESPERA a build de validação**; só depois grava os SHAs,
+  cria a próxima tag `v*-Beta-ptbr.N` e dispara a release
+- Se a build de validação falhar: abre/atualiza issue `upstream-sync` e
+  **não cria tag nenhuma** (impossível gerar "tag morta")
 
-### `sync-upstream.yml` — Sync semanal
-
-- Roda todo domingo às 20:00 (horário de Brasília)
-- Verifica se o OPL oficial (`ps2homebrew/Open-PS2-Loader`) teve novos commits
-- Se sim:
-  1. Testa se os mods ainda aplicam limpo no novo upstream
-  2. **Se sim:** atualiza `upstream.sha`, faz commit/push → dispara `build.yml` automaticamente
-  3. **Se não:** cria uma issue avisando que precisa de intervenção manual (provável conflito de patch)
-
-**Requer o secret `GH_PAT`** configurado (ver seção abaixo).
-
-## 🔑 Configuração inicial (uma vez só)
-
-Depois de criar o repo no GitHub:
-
-1. **Revogue qualquer token vazado** em https://github.com/settings/tokens
-
-2. **Crie um novo PAT** com escopos: `repo` + `workflow`
-   - Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token
-   - Marque: `repo` (todo) + `workflow`
-   - Salve o token em local seguro (você não vai ver de novo)
-
-3. **Adicione o PAT como secret no repo:**
-   - Repo → Settings → Secrets and variables → Actions → New repository secret
-   - Name: `GH_PAT`
-   - Value: cole o token
-   - Add secret
-
-4. **Atualize este README** substituindo `Chrispsz` pelo seu usuário GitHub:
-   ```bash
-   sed -i 's|Chrispsz|seu-usuario|g' README.md
-   git commit -am "docs: substitui placeholder de usuário"
-   git push
-   ```
-
-5. **Faça o primeiro push** de qualquer coisa para disparar o `build.yml` e validar que tudo funciona.
-
-## 📦 Como distribuir entre amigos
-
-### Opção A — Release permanente (recomendado)
-
-Crie uma tag quando quiser uma versão estável:
-
-```bash
-git tag -a v1.2.0-ptbr.1 -m "Primeira release do mod PT-BR"
-git push origin v1.2.0-ptbr.1
-```
-
-O workflow `release.yml` vai criar um Release público em `../../releases`. Mande o link pros seus amigos.
-
-### Opção B — Beta build (artifact)
-
-Sempre que você fizer push para `main`, o `build.yml` gera um artifact temporário (90 dias) na aba Actions. Bom pra testar mudanças antes de fazer uma release.
-
-### Opção C — Build local + pendrive
-
-Se não quiser usar CI:
-
-```bash
-docker run --rm -v "$PWD:/work" -w /work ps2dev/ps2sdk:latest bash -c '
-  git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
-  bash scripts/apply-mods.sh opl
-  cd opl && make -j$(nproc) NOT_PACKED=0 DEBUG=0 PADEMU=0
-'
-# Copie opl/OPNPS2LD.ELF para o pendrive
-```
+Para rodar manualmente: aba Actions → Pipeline Semanal → Run workflow
+(`force=true` para release imediata mesmo sem mudanças upstream).
 
 ## 📁 Estrutura do repo
 
 ```
 OPL-Mod-PTBR/
 ├── .github/workflows/
-│   ├── build.yml              # Build em push/PR
+│   ├── build.yml              # Build validada em push/PR
 │   ├── release.yml            # Release em tag
-│   └── sync-upstream.yml      # Sync semanal
+│   └── weekly-pipeline.yml    # Sync semanal + auto-release (validado)
 ├── mods/
-│   ├── 001-Makefile-ptbr-performance.patch   # Patch do Makefile
-│   ├── 002-opl-c-performance-usb.patch       # Patch do src/opl.c
-│   ├── merge_ptbr.py          # Mescla PT-BR no _base.yml
-│   └── conf_opl.cfg           # Config OPL pré-definida (opcional)
+│   ├── apply_mods.py          # Edições por âncoras de conteúdo (Makefile + opl.c)
+│   └── merge_ptbr.py          # Mescla PT-BR no _base.yml
 ├── scripts/
 │   ├── apply-mods.sh          # Aplica mods num clone upstream
-│   └── sync-upstream.sh       # Sync manual (debug)
-├── upstream.sha               # SHA do upstream sincronizado
+│   └── sync-upstream.sh       # Validador local (debug)
+├── upstream.sha               # SHA do OPL upstream registrado
+├── ule.sha                    # SHA do uLaunchELF registrado
 ├── .gitignore
 ├── LICENSE                    # AFL-3.0
-└── README.md                  # Este arquivo
+└── README.md
 ```
+
+### Por que âncoras em vez de patches?
+
+Os mods são aplicados por **âncoras de conteúdo** (`mods/apply_mods.py`), não
+por patches de linha. Patches quebram a cada mudança do upstream (linhas
+deslocam); âncoras só quebram se o upstream mudar o **código em si** — e, se
+quebrar, o erro aponta **exatamente qual âncora** precisa de revisão. O script
+só grava os arquivos se TODAS as âncoras + pós-validação passarem (nunca aplica
+pela metade).
 
 ## 🎨 Personalizando o mod
 
-### Mudar o device default (USB → HDD)
+Edite `mods/apply_mods.py` — cada modificação é uma âncora + substituição:
 
-Edite `mods/002-opl-c-performance-usb.patch`:
+```python
+# Mudar device default (USB -> HDD):
+text = replace_exact(
+    text,
+    "    gDefaultDevice = BDM_MODE; // Mod: USB default (universal em todo PS2)",
+    "    gDefaultDevice = HDD_MODE;",
+    "opl.c: default device = HDD",
+)
 
-```diff
--    gDefaultDevice = BDM_MODE;
-+    gDefaultDevice = HDD_MODE;
+# Reativar PADEMU: remova a substituição "PADEMU ?= 1 -> 0" e use PADEMU=1 no make.
 ```
 
-### Reativar HDD/ETH no boot
+Depois rode o validador local antes de subir:
 
-No mesmo patch:
-
-```diff
--    gHDDStartMode = START_MODE_DISABLED;
--    gETHStartMode = START_MODE_DISABLED;
-+    gHDDStartMode = START_MODE_AUTO;
-+    gETHStartMode = START_MODE_AUTO;
+```bash
+./scripts/sync-upstream.sh   # valida as âncoras contra o upstream atual
 ```
-
-### Reativar PADEMU
-
-Edite `mods/001-Makefile-ptbr-performance.patch`:
-
-```diff
--PADEMU ?= 0
-+PADEMU ?= 1
-```
-
-E no comando de build (e workflow), troque `PADEMU=0` por `PADEMU=1`.
 
 ### Mudar tema
 
-Por padrão o tema é o default do OPL (azul). Para usar outro tema:
-
-1. Baixe um tema de [ps2homebrew/OPL-Themes](https://github.com/ps2homebrew/OPL-Themes)
-2. Extraia para `mc0:/OPL/th_<nome-do-tema>/`
-3. No OPL: Settings → Themes → escolha o tema
-
+Por padrão o tema é o default do OPL (azul). Baixe um tema de
+[ps2homebrew/OPL-Themes](https://github.com/ps2homebrew/OPL-Themes), extraia
+para `mc0:/OPL/th_<nome-do-tema>/` e selecione em Settings → Themes.
 Não é necessário recompilar — temas são carregados em runtime.
 
 ## 🐛 Troubleshooting
 
-### O workflow `sync-upstream` falha com `GH_PAT secret not found`
+### O pipeline criou uma issue "Sync upstream falhou"
 
-Você não configurou o secret. Vá em Repo → Settings → Secrets and variables → Actions → New repository secret, nome `GH_PAT`, valor = seu PAT.
+A build de validação não passou contra o novo upstream. Abra o run linkado na
+issue: se for âncora quebrada, o log aponta qual (`Âncora 'X' encontrada 0x`);
+se for quebra de código, ajuste o mod. Depois rode o pipeline com `force=true`.
 
-### O workflow `build.yml` falha com `mods/*.patch não aplicou`
+### O build falha com "mods não aplicam"
 
-Provável conflito com nova versão do upstream. Veja o log do workflow, identifique qual patch falhou, edite o arquivo em `mods/`, faça commit e push.
+Veja o erro exato no log: cada âncora falha com a mensagem e o trecho de
+referência. Atualize a âncora em `mods/apply_mods.py` para o novo conteúdo do
+upstream. Nada é aplicado pela metade — ou tudo aplica, ou nada.
 
-### O ELF fica muito grande
+### Alguns jogos travam
 
-Confirme que está usando `NOT_PACKED=0` (default). Verifique também que PADEMU está 0 no Makefile e que você não ativou `EXTRA_FEATURES=1`.
+~5% dos jogos mais pesados podem sofrer com periféricos/caches. Nas Settings
+per-game (engrenagem no jogo), aba "Advanced", ajuste o `Read Cache` ou
+desative hooks extras.
 
 ### Como ver a versão do build
 
 ```bash
 cd opl && make oplversion
-# Exemplo: v1.2.0-Beta-1824-3e3f34e
+# Exemplo: v1.2.0-Beta-3-b3a2199
 ```
-
-### Alguns jogos travam com cache grande
-
-~5% dos jogos mais pesados podem ter conflito de memória com o cache CDVD grande (32). Solução: nas Settings per-game (ícone de engrenagem no jogo), aba "Advanced", reduza `Read Cache` para 8 ou 16.
 
 ## 🙏 Créditos
 
 - **OPL original:** [ps2homebrew/Open-PS2-Loader](https://github.com/ps2homebrew/Open-PS2-Loader)
-- **Tradução PT-BR:** `gledson999` via [Open-PS2-Loader-lang](https://github.com/ps2homebrew/Open-PS2-Loader-lang)
+- **Tradução PT-BR:** [Open-PS2-Loader-lang](https://github.com/ps2homebrew/Open-PS2-Loader-lang)
 - **PS2SDK toolchain:** [ps2dev/ps2dev](https://github.com/ps2dev/ps2dev)
-- **Docker image:** [ps2dev/ps2sdk-docker](https://github.com/ps2dev/ps2sdk-docker)
 
 ## 📜 Licença
 
