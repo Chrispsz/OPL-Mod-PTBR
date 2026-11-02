@@ -24,9 +24,8 @@ on:
     branches: [main]
   workflow_dispatch:
 
-defaults:
-  run:
-    shell: bash
+# ATENÇÃO: a imagem ps2dev/ps2dev (Alpine) NÃO tem bash. O default é sh.
+# O primeiro step instala o bash; os steps seguintes usam shell: bash.
 
 jobs:
   build:
@@ -65,6 +64,7 @@ jobs:
 
       - name: Validate build output
         working-directory: opl
+        shell: bash
         run: |
           set -euo pipefail
           test -f OPNPS2LD.ELF || { echo "ERRO: OPNPS2LD.ELF não gerado"; exit 1; }
@@ -85,6 +85,7 @@ jobs:
           echo "✅ ELF MIPS válido (${SIZE} bytes), PT-BR embutido confirmado"
 
       - name: Prepare artifact
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifact

@@ -39,9 +39,8 @@ on:
 permissions:
   contents: write
 
-defaults:
-  run:
-    shell: bash
+# ATENÇÃO: a imagem ps2dev/ps2dev (Alpine) NÃO tem bash. O default é sh.
+# O primeiro step instala o bash; os steps seguintes usam shell: bash.
 
 jobs:
   release:
@@ -55,13 +54,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          set -euo pipefail
           apk add --no-cache python3 py3-yaml zip git bash make curl p7zip tar unzip
 
       - name: Capture build metadata
         id: meta
         run: |
-          set -euo pipefail
+          set -eu
           if [ -n "${{ github.event.inputs.tag }}" ]; then
             TAG="${{ github.event.inputs.tag }}"
           else
@@ -72,7 +70,7 @@ jobs:
 
       - name: Clone upstream OPL (branch main)
         run: |
-          set -euo pipefail
+          set -eu
           git clone --depth 1 https://github.com/ps2homebrew/Open-PS2-Loader.git opl
           UPSTREAM_SHA=$(cd opl && git rev-parse HEAD)
           UPSTREAM_DATE=$(cd opl && git log -1 --format=%cd --date=format:'%Y-%m-%d')
@@ -93,6 +91,7 @@ jobs:
 
       - name: Verify OPL ELF
         working-directory: opl
+        shell: bash
         run: |
           set -euo pipefail
           test -f OPNPS2LD.ELF || { echo "ERRO: OPNPS2LD.ELF não gerado"; exit 1; }
@@ -105,6 +104,7 @@ jobs:
 
       - name: Download latest uLaunchELF
         id: ule
+        shell: bash
         run: |
           set -euo pipefail
           echo "==> Baixando uLaunchELF (BOOT.ELF) da tag latest..."
@@ -129,6 +129,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Download Memory Card Annihilator v2.2.0
+        shell: bash
         run: |
           set -euo pipefail
           echo "==> Baixando Memory Card Annihilator v2.2.0..."
@@ -142,6 +143,7 @@ jobs:
           echo "✅ MCA.ELF (Memory Card Annihilator) é um ELF MIPS válido"
 
       - name: Download HDLGameInstaller v0.821
+        shell: bash
         run: |
           set -euo pipefail
           echo "==> Baixando HDLGameInstaller v0.821..."
@@ -161,6 +163,7 @@ jobs:
           echo "✅ HDLGameInstaller.ELF é um ELF MIPS válido"
 
       - name: Download PS2 Memory Card Formatter v1.2
+        shell: bash
         run: |
           set -euo pipefail
           echo "==> Baixando PS2 Memory Card Formatter v1.2..."
@@ -172,6 +175,7 @@ jobs:
           echo "✅ MFU.ELF (Memory Formatter Utility) é um ELF MIPS válido"
 
       - name: Create PS2 kit ZIP (all ELFs)
+        shell: bash
         run: |
           set -euo pipefail
           TAG="${{ steps.meta.outputs.tag }}"
@@ -192,6 +196,7 @@ jobs:
           echo "PS2_KIT=OPL-PTBR-Mod-Kit-${TAG}.zip" >> "$GITHUB_ENV"
 
       - name: Download Linux tools
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p linux-tools
@@ -241,6 +246,7 @@ jobs:
           EOF
 
       - name: Create Linux tools tarball
+        shell: bash
         run: |
           set -euo pipefail
           TAG="${{ steps.meta.outputs.tag }}"
