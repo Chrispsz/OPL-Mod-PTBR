@@ -73,8 +73,9 @@ jobs:
             || { echo "ERRO: OPNPS2LD.ELF não é um ELF válido"; exit 1; }
 
           SIZE=$(stat -c%s OPNPS2LD.ELF)
-          if [ "$SIZE" -lt 2000000 ] || [ "$SIZE" -gt 8000000 ]; then
-            echo "ERRO: tamanho do ELF suspeito (${SIZE} bytes; esperado 2–8 MB)"
+          # Faixa plausível p/ build enxuta + packed (ps2-packer): ~1.3 MB real.
+          if [ "$SIZE" -lt 500000 ] || [ "$SIZE" -gt 5000000 ]; then
+            echo "ERRO: tamanho do ELF suspeito (${SIZE} bytes; esperado 0.5–5 MB)"
             exit 1
           fi
 
