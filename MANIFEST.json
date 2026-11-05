@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "name": "OPL-Mod-PTBR",
+  "description": "Open PS2 Loader mod com PT-BR embutido, perfil Balanced-Optimized e USB defaults",
+  "upstream": "https://github.com/ps2homebrew/Open-PS2-Loader",
+  "upstream_sha": "b3a2199795fe89ba7e2dd7b843354472dff2c3eb",
+  "manager": {
+    "tool": "ps2-manager",
+    "min_version": "0.1.0",
+    "command": "ps2-manager deploy <device_root> --repo Chrispsz/OPL-Mod-PTBR"
+  },
+  "deploy": {
+    "kit_asset_pattern": "OPL-PTBR-Mod-Kit-*.zip",
+    "notes": "ps2-manager baixa o kit da release mais recente (inclui prereleases), extrai os ELFs e monta BOOT_MC/ pronto para copia via uLaunchELF",
+    "files": [
+      {
+        "source": "OPNPS2LD.ELF",
+        "target": "BOOT_MC/OPL/OPNPS2LD.ELF",
+        "role": "opl",
+        "mc_path": "mc0:/OPL/OPNPS2LD.ELF"
+      },
+      {
+        "source": "BOOT.ELF",
+        "target": "BOOT_MC/BOOT/BOOT.ELF",
+        "role": "ulaunchelf",
+        "mc_path": "mc0:/BOOT/BOOT.ELF"
+      },
+      {
+        "source": "MCA.ELF",
+        "target": "BOOT_MC/APPS/MCA.ELF",
+        "role": "tool",
+        "mc_path": "mc0:/APPS/MCA.ELF"
+      },
+      {
+        "source": "HDLGameInstaller.ELF",
+        "target": "BOOT_MC/APPS/HDLGameInstaller.ELF",
+        "role": "tool",
+        "mc_path": "mc0:/APPS/HDLGameInstaller.ELF"
+      },
+      {
+        "source": "MFU.ELF",
+        "target": "BOOT_MC/APPS/MFU.ELF",
+        "role": "tool",
+        "mc_path": "mc0:/APPS/MFU.ELF"
+      }
+    ]
+  }
+}

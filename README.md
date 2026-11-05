@@ -199,6 +199,18 @@ cd opl && make oplversion
 # Exemplo: v1.2.0-Beta-3-b3a2199
 ```
 
+## 🤝 Integração com PS2 Manager (Linux nativo)
+
+O [PS2 Manager](https://github.com/Chrispsz/ps2-manager) — gerenciador nativo Linux em Rust — consome este repositório automaticamente:
+
+```bash
+ps2-manager deploy /media/$USER/PS2_SD
+```
+
+Baixa o `OPL-PTBR-Mod-Kit-*.zip` da release mais recente e monta `BOOT_MC/` pronto para copiar ao memory card via uLaunchELF (`mc0:/OPL/`, `mc0:/BOOT/`, `mc0:/APPS/`). O contrato completo está em [`MANIFEST.json`](MANIFEST.json) e a documentação em [`docs/PS2-MANAGER.md`](docs/PS2-MANAGER.md).
+
+O mesmo tool ainda faz: instalação com naming `GAMEID.Título.iso`, ZSO multithread, Smart ISO Shrink (LBA-preserving), ul.cfg bit-exact, capas 140×200 e cheats PNACH→`.cht`.
+
 ## 🙏 Créditos
 
 - **OPL original:** [ps2homebrew/Open-PS2-Loader](https://github.com/ps2homebrew/Open-PS2-Loader)
